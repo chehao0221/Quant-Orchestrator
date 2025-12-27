@@ -19,13 +19,12 @@ jobs:
           cache: 'pip'
 
       - name: Install deps
-        working-directory: repos/Quant-Guardian-Ultra
         run: |
+          cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      - name: Run Guardian
-        working-directory: repos/Quant-Guardian-Ultra
+      - name: Run Guardian (ROOT MODE)
         env:
-          PYTHONPATH: .
+          PYTHONPATH: repos/Quant-Guardian-Ultra
         run: |
-          python entrypoint.py
+          python repos/Quant-Guardian-Ultra/entrypoint.py
