@@ -2,7 +2,7 @@ name: Guardian System
 
 on:
   schedule:
-    # 🛡 Guardian：風控 / 黑天鵝 / 新聞掃描
+    # 🛡 盤後風控 / 黑天鵝（UTC 21:30 ≈ 台灣 05:30，可自行調）
     - cron: '30 21 * * *'
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Orchestrator
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -20,12 +20,12 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install Guardian dependencies
         run: |
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      - name: Run Guardian (ROOT MODE)
+      - name: Run Quant-Guardian-Ultra (CORRECT MODE)
         run: |
           cd repos/Quant-Guardian-Ultra
           python entrypoint.py
