@@ -2,41 +2,59 @@ name: Quant Explorer (Lv2)
 
 on:
   schedule:
-    - cron: '30 00 * * *'   # 股池更新
-    - cron: '00 01 * * *'   # Explorer AI
+    # 🧭 股池更新（每天一次）
+    - cron: '30 00 * * *'   # UTC 00:30（台灣 08:30）
+
+    # 🔍 Explorer AI（每天一次）
+    - cron: '00 01 * * *'   # UTC 01:00（台灣 09:00）
+
   workflow_dispatch:
 
 jobs:
-  explorer_tasks:
+  explorer:
     runs-on: ubuntu-latest
 
-    env:
-      DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
-      DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           cd repos/Stock-Genius-System
           pip install -r requirements.txt
 
-      # 1️⃣ 更新 Explorer 股池
-      - name: Update Explorer Pools
+      # ===============================
+      # 1️⃣ 更新 Explorer 股池（只寫 JSON）
+      # ===============================
+      - name: Update TW Explorer Pool
         run: |
           cd repos/Stock-Genius-System
           python scripts/update_tw_explorer_pool.py
+
+      - name: Update US Explorer Pool
+        run: |
+          cd repos/Stock-Genius-System
           python scripts/update_us_explorer_pool.py
 
-      # 2️⃣ Explorer AI
-      - name: Run Explorer AI
+      # ===============================
+      # 2️⃣ Explorer AI（只顯示 Top 5）
+      # ===============================
+      - name: Run TW Explorer AI
+        env:
+          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
         run: |
           cd repos/Stock-Genius-System
           python scripts/ai_tw_explorer_post.py
+
+      - name: Run US Explorer AI
+        env:
+          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+        run: |
+          cd repos/Stock-Genius-System
           python scripts/ai_us_explorer_post.py
