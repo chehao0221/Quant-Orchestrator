@@ -2,7 +2,8 @@ name: Guardian System
 
 on:
   schedule:
-    - cron: '30 21 * * *'   # 依你原設定
+    # 台灣時間早上 05:30（美股盤後 + 台股盤前）
+    - cron: '30 21 * * *'
   workflow_dispatch:
 
 jobs:
@@ -24,7 +25,8 @@ jobs:
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      - name: Run Guardian (PACKAGE MODE ✅)
+      # 🔴 關鍵修正在這裡
+      - name: Run Guardian (MODULE MODE)
         run: |
           cd repos
           python -m Quant-Guardian-Ultra.entrypoint
