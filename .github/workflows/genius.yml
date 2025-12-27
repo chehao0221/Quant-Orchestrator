@@ -1,0 +1,27 @@
+name: Stock Genius System
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'   # 每 2 小時
+  workflow_dispatch:
+
+jobs:
+  genius:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install deps
+        run: |
+          cd repos/Stock-Genius-System
+          pip install -r requirements.txt
+
+      - name: Run Genius
+        run: |
+          cd repos/Stock-Genius-System
+          python scripts/ai_us_post.py
+          python scripts/ai_tw_post.py
