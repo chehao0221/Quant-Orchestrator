@@ -39,19 +39,37 @@
 Quant-Orchestrator/
 │
 ├─ .github/
-│ └─ workflows/
-│ ├─ guardian.yml # 只負責跑 Quant-Guardian-Ultra
-│ ├─ genius.yml # 只負責跑 Stock-Genius-System
-│ └─ explorer.yml #（可選）Explorer / Lv2 分流
+│  └─ workflows/
+│     ├─ guardian.yml          # 🚨 只負責跑 Quant-Guardian-Ultra
+│     │                        # - 新聞雷達
+│     │                        # - 黑天鵝 / L4 風控
+│     │
+│     ├─ genius.yml            # 📈 只負責跑 Stock-Genius-System（Lv1）
+│     │                        # - 台股 / 美股 AI 核心監控
+│     │
+│     └─ explorer.yml          # 🧭 Explorer / Lv2（可選）
+│                              # - 成交量 Top 500 股池更新
+│                              # - Explorer AI 潛力股排序
 │
 ├─ repos/
-│ ├─ Quant-Guardian-Ultra/ # 原封不動 clone（不可修改）
-│ └─ Stock-Genius-System/ # 原封不動 clone（不可修改）
+│  ├─ Quant-Guardian-Ultra/    # 🛡 風控系統（原封不動 clone）
+│  │   ├─ core/
+│  │   ├─ modules/
+│  │   ├─ data/
+│  │   ├─ entrypoint.py
+│  │   └─ requirements.txt
+│  │
+│  └─ Stock-Genius-System/     # 🧠 AI 分析系統（原封不動 clone）
+│      ├─ scripts/
+│      ├─ data/
+│      ├─ requirements.txt
+│      └─ README.md
 │
-├─ shared/ # 預留（目前未啟用）
-│ └─ state.json
+├─ shared/                     # 🔒 預留共享狀態層（目前未啟用）
+│  └─ state.json
 │
-└─ README.md # 本文件
+└─ README.md                   # 📘 本文件（系統說明 / 架構圖 / 排程策略）
+
 
 ```
 
@@ -107,6 +125,15 @@ Quant-Orchestrator/
 
 如果你在這個 repo 想「加邏輯」，  
 那代表你應該去改 **子專案**，而不是這裡。
+
+
+| 類型        | Discord Secret 名稱            | 用途               |
+| --------- | ---------------------------- | ---------------- |
+| 一般系統 / 新聞 | `DISCORD_WEBHOOK_GENERAL`    | 系統狀態、一般新聞        |
+| 黑天鵝       | `DISCORD_WEBHOOK_BLACK_SWAN` | L4 / 極端風險        |
+| 美股        | `DISCORD_WEBHOOK_US`         | 美股 AI / Explorer |
+| 台股        | `DISCORD_WEBHOOK_TW`         | 台股 AI / Explorer |
+
 
 > **Quant-Orchestrator 只做一件事：  
 > 在對的時間，叫對的人起床。**
