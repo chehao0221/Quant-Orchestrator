@@ -1,34 +1,36 @@
-name: Stock Genius System
+name: Stock Genius System (Lv1 Core AI)
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # 每 2 小時
+    # 📈 核心 AI（每 2 小時一次，穩定不爆）
+    - cron: '0 */2 * * *'
+
   workflow_dispatch:
 
 jobs:
   genius:
     runs-on: ubuntu-latest
 
-    env:
-      DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
-      DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
-      DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           cd repos/Stock-Genius-System
           pip install -r requirements.txt
 
-      - name: Run US / TW AI
+      - name: Run Stock Genius AI
+        env:
+          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
         run: |
           cd repos/Stock-Genius-System
-          python scripts/ai_us_post.py
           python scripts/ai_tw_post.py
+          python scripts/ai_us_post.py
