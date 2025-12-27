@@ -1,0 +1,7 @@
+yfinance
+pandas
+xgboost
+requests
+feedparser
+scikit-learn
+pytz
