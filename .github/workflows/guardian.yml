@@ -2,7 +2,7 @@ name: Guardian System
 
 on:
   schedule:
-    # 台灣時間早上 05:30（美股盤後 + 台股盤前）
+    # 台灣時間早上 05:30（美股盤後）
     - cron: '30 21 * * *'
   workflow_dispatch:
 
@@ -25,8 +25,10 @@ jobs:
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      # 🔴 關鍵修正在這裡
-      - name: Run Guardian (MODULE MODE)
+      # ✅ 關鍵：指定 PYTHONPATH 為 Quant-Guardian-Ultra 根目錄
+      - name: Run Guardian (STABLE MODE)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/repos/Quant-Guardian-Ultra
         run: |
-          cd repos
-          python -m Quant-Guardian-Ultra.entrypoint
+          cd repos/Quant-Guardian-Ultra
+          python entrypoint.py
