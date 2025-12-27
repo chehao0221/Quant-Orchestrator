@@ -1,30 +1,23 @@
-name: Explorer Pool & AI Scanner (Lv2)
+name: Quant Explorer (Lv2)
 
 on:
   schedule:
-    # 🧭 Explorer 股池更新（每日一次即可）
-    - cron: '0 01 * * *'   # 01:00 UTC（09:00 台灣）
+    # 🧭 Explorer 股池更新（每天一次即可）
+    - cron: '30 00 * * *'   # UTC 00:30（台灣 08:30）
 
-    # 🔍 Explorer AI 掃描（每日一次）
-    - cron: '30 01 * * *'  # 01:30 UTC（09:30 台灣）
+    # 🔍 Explorer AI 探索（每天一次）
+    - cron: '00 01 * * *'   # UTC 01:00（台灣 09:00）
 
   workflow_dispatch:
 
 jobs:
   explorer_tasks:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      # ===============================
-      # Checkout
-      # ===============================
-      - uses: actions/checkout@v4
+      - name: Checkout Explorer Repo
+        uses: actions/checkout@v4
 
-      # ===============================
-      # Python
-      # ===============================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -36,39 +29,23 @@ jobs:
           pip install -r requirements.txt
 
       # ===============================
-      # Update Explorer Pools
+      # 1️⃣ 更新 Explorer 股池（只寫 JSON）
       # ===============================
-      - name: Update Explorer Pools (TW / US)
+      - name: Update TW Explorer Pool
         run: |
-          echo "[STEP] Update Explorer Pools"
-          python scripts/update_tw_explorer_pool.py || true
-          python scripts/update_us_explorer_pool.py || true
+          python scripts/update_tw_explorer_pool.py
 
-      # ===============================
-      # Run Explorer AI (DISPLAY ONLY)
-      # ===============================
-      - name: Explorer AI Scan (TW / US)
-        env:
-          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
-          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+      - name: Update US Explorer Pool
         run: |
-          echo "[STEP] Run Explorer AI"
-          python scripts/ai_tw_explorer_post.py || true
-          python scripts/ai_us_explorer_post.py || true
+          python scripts/update_us_explorer_pool.py
 
       # ===============================
-      # Commit Explorer Pool Updates
+      # 2️⃣ Explorer AI（只顯示 Top 5）
       # ===============================
-      - name: Commit Explorer Data
+      - name: Run TW Explorer AI
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          python scripts/ai_tw_explorer_post.py
 
-          git add data/explorer_pool_*.json
-
-          if git diff --staged --quiet; then
-            echo "No explorer pool changes"
-          else
-            git commit -m "Update Explorer pools (Lv2)"
-            git push
-          fi
+      - name: Run US Explorer AI
+        run: |
+          python scripts/ai_us_explorer_post.py
