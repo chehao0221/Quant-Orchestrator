@@ -10,29 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      # ✅ 最終解法：Bootstrap Runner
-      - name: Run Guardian (BOOTSTRAP MODE)
+      - name: Run Guardian (MODULE MODE ✅)
         run: |
-          python - << 'EOF'
-          import sys, os
-          root = os.path.join(os.getcwd(), "repos", "Quant-Guardian-Ultra")
-          sys.path.insert(0, root)
-
-          os.chdir(root)
-
-          import entrypoint
-          EOF
+          cd repos/Quant-Guardian-Ultra
+          python -m entrypoint
