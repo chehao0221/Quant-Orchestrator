@@ -10,36 +10,33 @@ jobs:
   explorer_tasks:
     runs-on: ubuntu-latest
 
+    env:
+      DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+      DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install deps
         run: |
           cd repos/Stock-Genius-System
           pip install -r requirements.txt
 
       # 1️⃣ 更新 Explorer 股池
-      - name: Update TW Explorer Pool
+      - name: Update Explorer Pools
         run: |
           cd repos/Stock-Genius-System
           python scripts/update_tw_explorer_pool.py
-
-      - name: Update US Explorer Pool
-        run: |
-          cd repos/Stock-Genius-System
           python scripts/update_us_explorer_pool.py
 
       # 2️⃣ Explorer AI
-      - name: Run TW Explorer AI
+      - name: Run Explorer AI
         run: |
           cd repos/Stock-Genius-System
           python scripts/ai_tw_explorer_post.py
-
-      - name: Run US Explorer AI
-        run: |
-          cd repos/Stock-Genius-System
           python scripts/ai_us_explorer_post.py
