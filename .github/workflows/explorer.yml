@@ -1,0 +1,74 @@
+name: Explorer Pool & AI Scanner (Lv2)
+
+on:
+  schedule:
+    # 🧭 Explorer 股池更新（每日一次即可）
+    - cron: '0 01 * * *'   # 01:00 UTC（09:00 台灣）
+
+    # 🔍 Explorer AI 掃描（每日一次）
+    - cron: '30 01 * * *'  # 01:30 UTC（09:30 台灣）
+
+  workflow_dispatch:
+
+jobs:
+  explorer_tasks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # ===============================
+      # Checkout
+      # ===============================
+      - uses: actions/checkout@v4
+
+      # ===============================
+      # Python
+      # ===============================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      # ===============================
+      # Update Explorer Pools
+      # ===============================
+      - name: Update Explorer Pools (TW / US)
+        run: |
+          echo "[STEP] Update Explorer Pools"
+          python scripts/update_tw_explorer_pool.py || true
+          python scripts/update_us_explorer_pool.py || true
+
+      # ===============================
+      # Run Explorer AI (DISPLAY ONLY)
+      # ===============================
+      - name: Explorer AI Scan (TW / US)
+        env:
+          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+        run: |
+          echo "[STEP] Run Explorer AI"
+          python scripts/ai_tw_explorer_post.py || true
+          python scripts/ai_us_explorer_post.py || true
+
+      # ===============================
+      # Commit Explorer Pool Updates
+      # ===============================
+      - name: Commit Explorer Data
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          git add data/explorer_pool_*.json
+
+          if git diff --staged --quiet; then
+            echo "No explorer pool changes"
+          else
+            git commit -m "Update Explorer pools (Lv2)"
+            git push
+          fi
