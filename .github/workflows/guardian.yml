@@ -2,7 +2,7 @@ name: Guardian System
 
 on:
   schedule:
-    - cron: '30 21 * * *'
+    - cron: '30 21 * * *'   # 依你原設定
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -18,12 +19,12 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      - name: Run Guardian (MODULE MODE ✅)
+      - name: Run Guardian (PACKAGE MODE ✅)
         run: |
-          cd repos/Quant-Guardian-Ultra
-          python -m entrypoint
+          cd repos
+          python -m Quant-Guardian-Ultra.entrypoint
