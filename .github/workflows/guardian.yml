@@ -1,33 +1,38 @@
-name: Guardian System
+name: Guardian System (Risk & Black Swan)
 
 on:
   schedule:
-    - cron: '30 21 * * *'
+    # 🛡 風控 / 新聞雷達（每日 4 次即可，穩定）
+    - cron: '00 22 * * *'   # UTC 22:00（台灣 06:00）
+    - cron: '00 00 * * *'   # UTC 00:00（台灣 08:00）
+    - cron: '30 06 * * *'   # UTC 06:30（台灣 14:30）
+    - cron: '00 12 * * *'   # UTC 12:00（台灣 20:00）
+
   workflow_dispatch:
 
 jobs:
   guardian:
     runs-on: ubuntu-latest
 
-    env:
-      DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
-      DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      - name: Run Guardian
+      - name: Run Guardian System
+        env:
+          DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
+          DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
         run: |
           cd repos/Quant-Guardian-Ultra
           python entrypoint.py
