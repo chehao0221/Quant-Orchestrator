@@ -24,10 +24,15 @@ jobs:
           cd repos/Quant-Guardian-Ultra
           pip install -r requirements.txt
 
-      # 🔑 關鍵就在這裡
-      - name: Run Guardian (FIXED)
-        env:
-          PYTHONPATH: ${{ github.workspace }}/repos/Quant-Guardian-Ultra
+      # ✅ 最終解法：Bootstrap Runner
+      - name: Run Guardian (BOOTSTRAP MODE)
         run: |
-          cd repos/Quant-Guardian-Ultra
-          python entrypoint.py
+          python - << 'EOF'
+          import sys, os
+          root = os.path.join(os.getcwd(), "repos", "Quant-Guardian-Ultra")
+          sys.path.insert(0, root)
+
+          os.chdir(root)
+
+          import entrypoint
+          EOF
