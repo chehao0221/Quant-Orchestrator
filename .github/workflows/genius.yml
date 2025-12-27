@@ -8,19 +8,26 @@ on:
 jobs:
   genius:
     runs-on: ubuntu-latest
+
+    env:
+      DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+      DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+      DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
       - name: Install deps
         run: |
           cd repos/Stock-Genius-System
           pip install -r requirements.txt
 
-      - name: Run Genius
+      - name: Run US / TW AI
         run: |
           cd repos/Stock-Genius-System
           python scripts/ai_us_post.py
