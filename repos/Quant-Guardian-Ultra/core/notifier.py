@@ -1,30 +1,40 @@
-import requests
 import os
+import requests
+import json
+from datetime import datetime
 
-class Notifier:
+
+class DiscordNotifier:
     def __init__(self):
-        self.webhooks = {
-            "tw": os.getenv("DISCORD_TW_STOCK"),
-            "us": os.getenv("DISCORD_US_STOCK"),
-            "swan": os.getenv("DISCORD_BLACK_SWAN"),
-            "news": os.getenv("DISCORD_GENERAL_NEWS")
-        }
+        self.webhook = os.getenv("DISCORD_WEBHOOK_URL")
+        if not self.webhook:
+            raise ValueError("DISCORD_WEBHOOK_URL 未設定")
 
-    def send(self, channel_type, title, msg, color=0x3498db):
-        url = self.webhooks.get(channel_type)
-        if not url:
-            return False
-
+    def send(self, message: str):
         payload = {
-            "embeds": [{
-                "title": title,
-                "description": msg,
-                "color": color,
-                "footer": {"text": "Quant-Guardian-Ultra"}
-            }]
+            "content": message
         }
-        try:
-            r = requests.post(url, json=payload, timeout=10)
-            return r.status_code == 204
-        except Exception:
-            return False
+        response = requests.post(
+            self.webhook,
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        response.raise_for_status()
+
+    # =========================
+    # 🫀 Guardian 每日心跳（繁體中文）
+    # =========================
+    def send_heartbeat(self, status="正常", note=""):
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        message = (
+            "🫀 **Guardian 系統心跳回報**\n\n"
+            f"🟢 系統狀態：**{status}**\n"
+            f"🕒 檢查時間：{now}\n"
+            "🛡 模式：風險監控待命\n"
+        )
+
+        if note:
+            message += f"\n📌 備註：{note}"
+
+        self.send(message)
