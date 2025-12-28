@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 # ==================================================
-# 修正 modules 資料夾尾巴空白
+# 修正 modules 資料夾尾巴空白（只修一次）
 # ==================================================
 BASE_DIR = Path(__file__).resolve().parent
 MODULES_DIR = BASE_DIR / "modules"
@@ -25,7 +25,7 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# imports（嚴格對齊原始模組）
+# imports（完全對齊現有模組）
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
@@ -44,7 +44,7 @@ def main():
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
 
-    # ---------- Data Manager ----------
+    # ---------- 狀態管理 ----------
     data_manager = DataManager()
 
     # ---------- VIX ----------
@@ -57,34 +57,29 @@ def main():
     news_events = NewsScanner(data_manager).scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
-    # ---------- Market Analyst（存在性檢查，不誤用） ----------
+    # ---------- Market Analyst（保留原功能，不餵給 Defense） ----------
     print("[PHASE] 市場分析（台 / 美）")
 
-    def check_market_analyst(market: str):
+    for market in ("TW", "US"):
         try:
-            MarketAnalyst(market)
-            return "AVAILABLE"
+            analyst = MarketAnalyst(market)
+            analyst.analyze("INDEX")  # 不影響交易，只確認模組可運作
         except Exception as e:
-            print(f"[WARN] {market} 市場分析模組不可用：{e}")
-            return "UNAVAILABLE"
+            print(f"[WARN] {market} 市場分析失敗：{e}")
 
-    tw_status = check_market_analyst("TW")
-    us_status = check_market_analyst("US")
-
-    # ---------- Defense ----------
+    # ---------- Defense（⚠️ 嚴格依照原始 API） ----------
     print("[PHASE] 風控評估")
     defense = DefenseManager()
 
-    # ⚠️ 嚴格使用位置參數（不破壞原始設計）
+    # ✅ 只傳 Defense 真正需要的參數
     decision = defense.evaluate(
         vix_value,
-        tw_status,
-        us_status,
+        news_events,
     )
 
     print("[RESULT] Guardian 判定結果：", decision)
 
-    # ---------- 輸出共享狀態（只做控制，不交易） ----------
+    # ---------- 輸出共享狀態（只控制，不交易） ----------
     shared_state = {
         "allow_trading": decision.get("level") in ("L1", "L2"),
         "risk_level": decision.get("level"),
@@ -102,7 +97,7 @@ def main():
     if not shared_state["allow_trading"]:
         notifier.trading_halt(
             level=shared_state["risk_level"],
-            reason="Guardian 判定風險偏高，系統暫停交易",
+            reason="Guardian 判定風險偏高，今日停盤",
         )
 
     print("[GUARDIAN] 本次盤後風控流程完成")
