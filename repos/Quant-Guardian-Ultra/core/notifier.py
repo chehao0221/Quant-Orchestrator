@@ -1,34 +1,52 @@
-# Discord Notifier (Red / Yellow / Green)
-
-import os
-import json
 import requests
-
-WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
-
-COLOR_MAP = {
-    "GREEN": 3066993,
-    "YELLOW": 15105570,
-    "RED": 15158332
-}
+import os
+from datetime import datetime
 
 class Notifier:
-    def send(self, payload):
-        if not payload:
+    def __init__(self):
+        self.webhook_general = os.getenv("DISCORD_WEBHOOK_GENERAL")
+        self.webhook_black = os.getenv("DISCORD_WEBHOOK_BLACK_SWAN")
+
+    def _send(self, webhook, title, description, color):
+        if not webhook:
             return
 
-        data = {
+        payload = {
             "embeds": [{
-                "title": payload["title"],
-                "description": payload["message"],
-                "color": COLOR_MAP[payload["status"]],
-                "fields": [
-                    {"name": "風險等級", "value": payload["risk_level"], "inline": True},
-                    {"name": "系統狀態", "value": payload["status"], "inline": True},
-                ],
-                "footer": {"text": "Quant-Orchestrator Guardian"},
+                "title": title,
+                "description": description,
+                "color": color,
+                "footer": {
+                    "text": f"Quant-Orchestrator • {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+                }
             }]
         }
+        requests.post(webhook, json=payload, timeout=10)
 
-        if WEBHOOK_GENERAL:
-            requests.post(WEBHOOK_GENERAL, json=data)
+    def notify(self, level, decision, changed):
+        if not changed:
+            return
+
+        if decision.level >= 5:
+            webhook = self.webhook_black
+        else:
+            webhook = self.webhook_general
+
+        color_map = {
+            "GREEN": 3066993,
+            "YELLOW": 15105570,
+            "RED": 15158332,
+        }
+
+        title = f"Guardian 風控狀態更新：L{decision.level}"
+        desc = (
+            f"市場狀態：{decision.description}\n"
+            f"系統狀態：{'凍結中' if decision.freeze else '正常'}"
+        )
+
+        self._send(
+            webhook,
+            title,
+            desc,
+            color_map.get(decision.color, 0)
+        )
