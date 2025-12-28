@@ -8,8 +8,8 @@ if BASE_DIR not in sys.path:
 
 # === Core ===
 from core.engine import GuardianEngine
-from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
+from core.notifier import Notifier   # ✅ 這裡是關鍵修正
 
 # === Modules ===
 from modules.scanners.news import NewsScanner
@@ -20,21 +20,21 @@ from modules.analysts.market_analyst import MarketAnalyst
 
 def main():
     data_manager = DataManager()
-    notifier = DiscordNotifier()
+    notifier = Notifier()   # ✅ 對齊實際 class 名稱
 
     engine = GuardianEngine(
         data_manager=data_manager,
         notifier=notifier,
     )
 
-    # Scanners
+    # === Scanners ===
     engine.register_scanner(NewsScanner())
     engine.register_scanner(VIXScanner())
 
-    # Guardians
+    # === Guardians ===
     engine.register_guardian(DefenseGuardian())
 
-    # Analysts
+    # === Analysts ===
     engine.register_analyst(MarketAnalyst())
 
     engine.run()
