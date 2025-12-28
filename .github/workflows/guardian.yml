@@ -24,6 +24,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
-      # 🔥 關鍵：唯一正確的 Guardian 入口
+      # 🛡 Guardian 主流程（含每日心跳）
       - name: Run Guardian
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python repos/Quant-Guardian-Ultra/entrypoint.py
