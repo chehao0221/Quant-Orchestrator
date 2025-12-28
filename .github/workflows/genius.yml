@@ -1,9 +1,13 @@
-name: Stock Genius System
+name: 🧠 Stock Genius System
 
 on:
   schedule:
-    # 每天盤後（台灣時間 18:10 = UTC 10:10）
-    - cron: "10 10 * * *"
+    # 🇹🇼 台股盤後 +1 小時（14:00 UTC = 22:00 TW）
+    - cron: "0 14 * * 1-5"
+
+    # 🇺🇸 美股盤後 +1 小時（22:00 UTC = 06:00 TW）
+    - cron: "0 22 * * 1-5"
+
   workflow_dispatch:
 
 jobs:
@@ -11,25 +15,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Load Guardian State (pause gate)
-        id: guardian
-        run: |
-          STATE_FILE="shared/guardian_state.json"
-          if [ ! -f "$STATE_FILE" ]; then
-            echo "guardian_action=RUN" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          ACTION=$(jq -r '.action // "RUN"' "$STATE_FILE")
-          echo "guardian_action=$ACTION" >> $GITHUB_OUTPUT
-
-      - name: Stop if Guardian paused system
-        if: steps.guardian.outputs.guardian_action != 'RUN'
-        run: |
-          echo "🛑 Guardian 狀態為 ${{ steps.guardian.outputs.guardian_action }}，Stock-Genius 暫停執行"
-          exit 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
