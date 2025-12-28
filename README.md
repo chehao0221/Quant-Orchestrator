@@ -24,59 +24,68 @@
 Quant-Orchestrator/
 │
 ├─ .github/
-│  └─ workflows/
-│     ├─ guardian.yml
-│     ├─ genius_tw.yml
-│     ├─ genius_us.yml
-│     └─ explorer.yml
+│   └─ workflows/                     ← 工作流程排程層
+│      ├─ guardian.yml
+│      ├─ genius_tw.yml
+│      ├─ genius_us.yml
+│      └─ explorer.yml
+│
+├─ orchestrator/                     ← Orchestrator 層程式
+│   ├─ __init__.py
+│   ├─ state_adapter.py
+│   ├─ state_machine.py
+│   ├─ state_reader.py
+│   ├─ state_writer.py
+│   ├─ system_state.json             ← workflow 共享的系統狀態
+│   └─ state_schema.json             ← 定義狀態的 schema（可選）
 │
 ├─ repos/
-│  │
-│  ├─ Quant-Guardian-Ultra/
-│  │   ├─ entrypoint.py
-│  │   ├─ core/
-│  │   │   ├─ engine.py
-│  │   │   ├─ notifier.py
-│  │   │   ├─ data_manager.py
-│  │   │   └─ __init__.py
-│  │   ├─ modules/
-│  │   │   ├─ scanners/
-│  │   │   │   ├─ news.py
-│  │   │   │   ├─ vix_scanner.py
-│  │   │   │   └─ __init__.py
-│  │   │   ├─ guardians/
-│  │   │   │   ├─ defense.py
-│  │   │   │   └─ __init__.py
-│  │   │   ├─ analysts/
-│  │   │   │   ├─ market_analyst.py
-│  │   │   │   └─ __init__.py
-│  │   │   └─ __init__.py
-│  │   ├─ data/
-│  │   │   └─ state.json
-│  │   ├─ requirements.txt
-│  │   └─ README.md
-│  │
-│  └─ Stock-Genius-System/
-│      ├─ scripts/
-│      │   ├─ ai_tw_post.py
-│      │   ├─ ai_us_post.py
-│      │   ├─ ai_tw_explorer_post.py
-│      │   ├─ ai_us_explorer_post.py
-│      │   ├─ update_tw_explorer_pool.py
-│      │   ├─ update_us_explorer_pool.py
-│      │   └─ safe_yfinance.py
-│      ├─ data/
-│      │   ├─ tw_history.csv
-│      │   ├─ us_history.csv
-│      │   ├─ explorer_pool_tw.json
-│      │   └─ explorer_pool_us.json
-│      ├─ requirements.txt
-│      └─ README.md
+│   ├─ Quant-Guardian-Ultra/         ← 風控主系統
+│   │   ├─ core/
+│   │   │   ├─ engine.py
+│   │   │   ├─ notifier.py
+│   │   │   ├─ risk_policy.py         ← 風控決策表
+│   │   │   └─ …其他 Guardian 程式
+│   │   │
+│   │   ├─ modules/
+│   │   ├─ data/
+│   │   │   └─ …Guardian 自己的 state
+│   │   ├─ entrypoint.py              ← workflow 入口
+│   │   └─ requirements.txt
+│   │
+│   └─ Stock-Genius-System/           ← 市場分析系統
+│       ├─ data/
+│       │   ├─ tw_history.csv
+│       │   ├─ us_history.csv
+│       │   ├─ explorer_pool_tw.json
+│       │   ├─ explorer_pool_us.json
+│       │   ├─ horizon_policy.json
+│       │   ├─ l3_warning.flag
+│       │   ├─ l4_active.flag
+│       │   ├─ l4_last_end.flag
+│       │   ├─ black_swan_history.csv
+│       │   ├─ news_cache.json
+│       │   ├─ equity_TW.png
+│       │   └─ equity_US.png
+│       │
+│       ├─ scripts/                   ← 實際市場分析與 data pipeline
+│       │   ├─ ai_tw_post.py
+│       │   ├─ ai_us_post.py
+│       │   ├─ update_tw_explorer_pool.py
+│       │   ├─ update_us_explorer_pool.py
+│       │   ├─ safe_yfinance.py
+│       │   ├─ news_radar.py
+│       │   ├─ performance_dashboard.py
+│       │   └─ l4_*.py                 ← L4 事件相關
+│       │
+│       ├─ requirements.txt
+│       └─ README.md
 │
 ├─ shared/
-│  └─ guardian_state.json    🔑 唯一 pause gate state
+│   └─ guardian_state.json           ← 全系統唯一的狀態真相（master store）
 │
-└─ README.md
+└─ README.md                         ← Orchestrator 介紹與說明
+
 
 
 ```
