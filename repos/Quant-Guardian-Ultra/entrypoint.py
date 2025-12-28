@@ -1,77 +1,44 @@
-import hashlib
-from datetime import datetime
-import pytz
+import os
+import sys
 
-from core import GuardianEngine, Notifier
+# === 保險級 import 修正（Orchestrator / 單獨執行 都能跑） ===
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+# === 正式 imports（不要再改） ===
+from core.engine import GuardianEngine
+from core.notifier import DiscordNotifier
+from core.data_manager import DataManager
+
 from modules.scanners.news import NewsScanner
-from modules.scanners.vix_scanner import VixScanner
-from modules.guardians.defense import DefenseManager
+from modules.scanners.vix_scanner import VIXScanner
+from modules.guardians.defense import DefenseGuardian
 from modules.analysts.market_analyst import MarketAnalyst
 
+
 def main():
-    engine = GuardianEngine()
-    notifier = Notifier()
+    data_manager = DataManager()
+    notifier = DiscordNotifier()
 
-    tz = pytz.timezone("Asia/Taipei")
-    now = datetime.now(tz)
-    h = now.hour
+    engine = GuardianEngine(
+        data_manager=data_manager,
+        notifier=notifier,
+    )
 
-    # --- 1️⃣ 風險掃描 ---
-    news_lv, news_list = NewsScanner().scan()
-    vix_lv = VixScanner().check_vix()
-    defense_lv = DefenseManager().evaluate()
+    # === Scanners ===
+    engine.register_scanner(NewsScanner())
+    engine.register_scanner(VIXScanner())
 
-    risk_lv = max(news_lv, vix_lv, defense_lv)
+    # === Guardians ===
+    engine.register_guardian(DefenseGuardian())
 
-    if news_list:
-        content = "".join(news_list)
-        news_hash = hashlib.md5(content.encode()).hexdigest()
+    # === Analysts ===
+    engine.register_analyst(MarketAnalyst())
 
-        if engine.state.get("last_news_hash") != news_hash:
-            if risk_lv >= 4:
-                engine.set_risk(4, pause_hours=8)
-                notifier.send(
-                    "swan",
-                    "🚨 黑天鵝風險警報",
-                    news_list[0],
-                    color=0xff0000
-                )
-            elif h in [8, 14, 20]:
-                notifier.send(
-                    "news",
-                    "📰 市場焦點",
-                    "\n".join(news_list[:5]),
-                    color=0x95a5a6
-                )
+    # === Run ===
+    engine.run()
 
-            engine.state["last_news_hash"] = news_hash
-            engine.save_state()
-
-    # --- 2️⃣ AI 分析 ---
-    if not engine.is_paused():
-        if h == 14:
-            analyst = MarketAnalyst("TW")
-            for s in ["2330.TW", "2317.TW", "2454.TW"]:
-                res = analyst.analyze(s)
-                if res:
-                    notifier.send(
-                        "tw",
-                        f"📈 台股盤後：{s}",
-                        f"收盤價：{res['price']}\n預測報酬：{res['pred']:.2%}",
-                        color=0x2ecc71
-                    )
-
-        if h == 6:
-            analyst = MarketAnalyst("US")
-            for s in ["NVDA", "TSLA", "AAPL"]:
-                res = analyst.analyze(s)
-                if res:
-                    notifier.send(
-                        "us",
-                        f"🇺🇸 美股盤後：{s}",
-                        f"收盤價：{res['price']}\n預測報酬：{res['pred']:.2%}",
-                        color=0x3498db
-                    )
 
 if __name__ == "__main__":
     main()
