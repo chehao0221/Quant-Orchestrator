@@ -1,32 +1,39 @@
-from datetime import datetime, timedelta
-import json
-from pathlib import Path
+from dataclasses import dataclass
 
-STATE_FILE = Path("../../shared/state.json")
+@dataclass
+class RiskDecision:
+    level: int
+    color: str
+    description: str
+    freeze: bool
 
-def load_state():
-    if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text())
-    return {}
+RISK_POLICY = {
+    0: RiskDecision(0, "GREEN", "系統靜默", False),
+    1: RiskDecision(1, "GREEN", "市場正常", False),
+    2: RiskDecision(2, "GREEN", "市場穩定偏多", False),
+    3: RiskDecision(3, "YELLOW", "風險升溫", False),
+    4: RiskDecision(4, "RED", "高風險，系統凍結", True),
+    5: RiskDecision(5, "RED", "黑天鵝事件", True),
+}
 
-def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2))
-
-def evaluate_risk(vix, news_score):
+def evaluate_risk(vix: float, sentiment: float, event_score: float) -> int:
     """
-    回傳風險等級 L1~L4
+    AI 風控核心邏輯（可後續換模型）
     """
-    if vix > 35 or news_score > 0.8:
+    score = 0
+    if vix > 30:
+        score += 2
+    if sentiment < -0.5:
+        score += 2
+    if event_score > 0.85:
+        score += 2
+
+    if score >= 5:
+        return 5
+    if score >= 4:
         return 4
-    if vix > 25 or news_score > 0.5:
+    if score >= 3:
         return 3
-    if vix > 18:
+    if score >= 2:
         return 2
     return 1
-
-def should_recheck_l4(state):
-    last = state.get("l4_last_check")
-    if not last:
-        return True
-    last = datetime.fromisoformat(last)
-    return datetime.utcnow() - last >= timedelta(minutes=90)
