@@ -32,58 +32,44 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # =========================
-# Core（穩定）
+# Core
 # =========================
 from core.engine import GuardianEngine
-from core.data_manager import DataManager
-from core.notifier import Notifier
-
 
 # =========================
 # 🔥 動態載入工具
 # =========================
 def load_first_class(module_path: str):
-    """
-    載入模組中第一個「在該檔案內定義的 class」
-    """
     module = importlib.import_module(module_path)
-
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if obj.__module__ == module.__name__:
             print(f"[LOAD] {module_path}.{obj.__name__}")
             return obj
-
     raise ImportError(f"No class found in {module_path}")
 
 
 def load_class_with_keyword(module_path: str, keyword: str):
     module = importlib.import_module(module_path)
-
     for _, obj in inspect.getmembers(module, inspect.isclass):
         if obj.__module__ == module.__name__ and keyword in obj.__name__:
             print(f"[LOAD] {module_path}.{obj.__name__}")
             return obj
-
     raise ImportError(f"No class with keyword '{keyword}' found in {module_path}")
 
 
 # =========================
-# Modules（策略化載入）
+# Modules（實際對齊你 repo）
 # =========================
-
-# Scanner：關鍵字可用
 from modules.scanners.news import NewsScanner
 VIXScannerClass = load_class_with_keyword(
     "modules.scanners.vix_scanner",
     keyword="Scanner"
 )
 
-# Guardian / Defense：直接取唯一 class
 DefenseClass = load_first_class(
     "modules.guardians.defense"
 )
 
-# Analyst：關鍵字可用
 MarketAnalystClass = load_class_with_keyword(
     "modules.analysts.market_analyst",
     keyword="Analyst"
@@ -91,16 +77,14 @@ MarketAnalystClass = load_class_with_keyword(
 
 
 def main():
-    engine = GuardianEngine(
-        data_manager=DataManager(),
-        notifier=Notifier(),
-    )
+    # ✅ 正確的初始化方式（不傳任何參數）
+    engine = GuardianEngine()
 
     # Scanners
     engine.register_scanner(NewsScanner())
     engine.register_scanner(VIXScannerClass())
 
-    # Defense / Guardian
+    # Guardians / Defense
     engine.register_guardian(DefenseClass())
 
     # Analysts
