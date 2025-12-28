@@ -4,11 +4,17 @@ import json
 from pathlib import Path
 
 # ==================================================
-# 修正 modules 資料夾尾巴空白（只修一次）
+# 基本路徑
 # ==================================================
 BASE_DIR = Path(__file__).resolve().parent
-MODULES_DIR = BASE_DIR / "modules"
+ROOT_DIR = BASE_DIR.parent.parent
+SHARED_DIR = ROOT_DIR / "shared"
+STATE_FILE = SHARED_DIR / "guardian_state.json"
 
+# ==================================================
+# 修正 modules 尾巴空白（保險）
+# ==================================================
+MODULES_DIR = BASE_DIR / "modules"
 if MODULES_DIR.exists():
     for p in MODULES_DIR.iterdir():
         if p.is_dir() and p.name.endswith(" "):
@@ -25,7 +31,7 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# imports（完全對齊現有模組）
+# imports
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
@@ -44,59 +50,66 @@ def main():
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
 
-    # ---------- 狀態管理 ----------
-    data_manager = DataManager()
+    SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ---------- VIX ----------
-    print("[PHASE] VIX 恐慌指數掃描")
-    vix_value = VixScanner().scan()
-    print(f"[INFO] VIX 指數：{vix_value}")
+    try:
+        # ---------- 狀態 ----------
+        data_manager = DataManager()
 
-    # ---------- News ----------
-    print("[PHASE] 新聞掃描 / 去重")
-    news_events = NewsScanner(data_manager).scan()
-    print(f"[INFO] 新聞事件數：{len(news_events)}")
+        # ---------- VIX ----------
+        print("[PHASE] VIX 恐慌指數掃描")
+        vix = VixScanner().scan()
+        print(f"[INFO] VIX 指數：{vix}")
 
-    # ---------- Market Analyst（保留原功能，不餵給 Defense） ----------
-    print("[PHASE] 市場分析（台 / 美）")
+        # ---------- News ----------
+        print("[PHASE] 新聞掃描 / 去重")
+        news = NewsScanner(data_manager).scan()
+        print(f"[INFO] 新聞事件數：{len(news)}")
 
-    for market in ("TW", "US"):
-        try:
-            analyst = MarketAnalyst(market)
-            analyst.analyze("INDEX")  # 不影響交易，只確認模組可運作
-        except Exception as e:
-            print(f"[WARN] {market} 市場分析失敗：{e}")
+        # ---------- 市場分析（保留功能） ----------
+        print("[PHASE] 市場分析（台 / 美）")
+        for market in ("TW", "US"):
+            try:
+                MarketAnalyst(market).analyze("INDEX")
+            except Exception as e:
+                print(f"[WARN] {market} 市場分析失敗：{e}")
 
-    # ---------- Defense（⚠️ 嚴格依照原始 API） ----------
-    print("[PHASE] 風控評估")
-    defense = DefenseManager()
+        # ---------- Defense ----------
+        print("[PHASE] 風控評估")
+        defense = DefenseManager()
+        decision = defense.evaluate(vix, news)
 
-    # ✅ 只傳 Defense 真正需要的參數
-    decision = defense.evaluate(
-        vix_value,
-        news_events,
-    )
+        print("[RESULT] Guardian 判定結果：", decision)
 
-    print("[RESULT] Guardian 判定結果：", decision)
+        allow = decision.get("level") in ("L1", "L2")
 
-    # ---------- 輸出共享狀態（只控制，不交易） ----------
-    shared_state = {
-        "allow_trading": decision.get("level") in ("L1", "L2"),
+    except Exception as e:
+        # ❗ 任何異常 → 保守停盤
+        print("[ERROR] Guardian 發生例外，進入保守停盤：", e)
+        decision = {
+            "level": "L4",
+            "action": "HALT",
+            "reason": f"Guardian exception: {e}"
+        }
+        allow = False
+
+    # ---------- 寫入 shared 狀態（一定會執行） ----------
+    state = {
+        "allow_trading": allow,
         "risk_level": decision.get("level"),
         "action": decision.get("action"),
         "reason": decision.get("reason", ""),
     }
 
-    shared_path = BASE_DIR.parent.parent / "shared" / "guardian_state.json"
-    shared_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
-    with open(shared_path, "w", encoding="utf-8") as f:
-        json.dump(shared_state, f, ensure_ascii=False, indent=2)
+    print("[GUARDIAN] 已寫入 guardian_state.json")
 
     # ---------- 通知 ----------
-    if not shared_state["allow_trading"]:
+    if not allow:
         notifier.trading_halt(
-            level=shared_state["risk_level"],
+            level=state["risk_level"],
             reason="Guardian 判定風險偏高，今日停盤",
         )
 
