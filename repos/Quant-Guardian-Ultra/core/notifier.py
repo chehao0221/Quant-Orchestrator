@@ -7,17 +7,18 @@ from datetime import datetime
 class DiscordNotifier:
     """
     Guardian / Stock-Genius 共用 Discord 通知器
-    - 支援等級顏色
-    - 支援多頻道
-    - 支援心跳通知
+    - 三色視覺：綠 / 黃 / 紅
+    - 心跳
+    - 停盤公告
+    - 黑天鵝
     - 繁體中文
     """
 
+    # 🎨 統一三色視覺
     COLORS = {
-        "L3": 0xF1C40F,        # 黃色
-        "L4": 0xE74C3C,        # 紅色
-        "BLACK_SWAN": 0x9B59B6,  # 紫色
-        "INFO": 0x3498DB,      # 藍色
+        "GREEN": 0x2ECC71,   # 🟢 安全 / 正常
+        "YELLOW": 0xF1C40F,  # 🟡 提醒 / 風險升高
+        "RED": 0xE74C3C,     # 🔴 停盤 / 黑天鵝
     }
 
     def __init__(self, debug: bool = False):
@@ -48,7 +49,7 @@ class DiscordNotifier:
         self,
         title: str,
         description: str,
-        level: str = "INFO",
+        color: str = "GREEN",
         channel: str = "general",
         footer: str | None = None,
     ):
@@ -60,7 +61,7 @@ class DiscordNotifier:
         embed = {
             "title": title,
             "description": description,
-            "color": self.COLORS.get(level, self.COLORS["INFO"]),
+            "color": self.COLORS.get(color, self.COLORS["GREEN"]),
             "timestamp": datetime.utcnow().isoformat(),
             "footer": {
                 "text": footer or "Quant-Orchestrator Guardian System"
@@ -82,74 +83,72 @@ class DiscordNotifier:
             print(f"[WARN] Discord 發送例外：{e}")
 
     # --------------------------------------------------
-    # 💓 Heartbeat（你現在缺的就是這個）
+    # 💓 心跳（🟢）
 
-    def heartbeat(self, mode: str = "監控中"):
-        """
-        Guardian 每日 / 手動 心跳通知
-        """
-        title = "💓 Guardian 系統心跳回報"
-        desc = (
-            f"🟢 **系統狀態：正常監控中**\n\n"
-            f"⏱ 檢查時間：{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
-            f"⚙️ 模式：{mode}\n\n"
-            f"📌 備註：系統已完成例行檢查，未偵測到異常。"
-        )
-
+    def heartbeat(self, mode: str = "風險監控待命"):
         self.send(
-            title=title,
-            description=desc,
-            level="INFO",
+            title="🟢 Guardian 系統狀態正常",
+            description=(
+                f"💓 **系統心跳回報**\n\n"
+                f"⏱ 時間：{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
+                f"⚙️ 模式：{mode}\n\n"
+                f"📌 狀態：持續監控中"
+            ),
+            color="GREEN",
             channel="general",
         )
 
     # --------------------------------------------------
-    # 🚨 Guardian 專用封裝（朋友也看得懂）
+    # 🚨 Guardian 判斷結果
 
     def guardian_summary(self, result: dict):
-        """
-        result example:
-        {
-          "level": "L3",
-          "action": "REDUCE",
-          "reason": "VIX 偏高 + 新聞事件"
-        }
-        """
         level = result.get("level", "L3")
         reason = result.get("reason", "系統綜合評估")
 
+        # 🟡 L3：提醒
         if level == "L3":
             self.send(
-                title="⚠️ 今日市場風險偏高（提醒）",
+                title="🟡 市場風險提醒",
                 description=(
-                    f"📊 **風控等級：L3（中度風險）**\n\n"
+                    f"⚠️ **風控等級：L3（風險升高）**\n\n"
                     f"🔎 原因：{reason}\n\n"
-                    f"📌 建議：降低曝險、謹慎觀察"
+                    f"📌 建議：降低部位、謹慎操作"
                 ),
-                level="L3",
+                color="YELLOW",
                 channel="general",
             )
 
+        # 🔴 L4：停盤
         elif level == "L4":
-            self.send(
-                title="🛑 高風險警告｜今日建議停盤",
-                description=(
-                    f"🚨 **風控等級：L4（高風險）**\n\n"
-                    f"🔎 原因：{reason}\n\n"
-                    f"⛔ 建議：暫停交易 / Explorer / 新進策略"
-                ),
-                level="L4",
-                channel="general",
-            )
+            self.trading_halt(reason)
 
+        # 🔴 黑天鵝
         elif level == "BLACK_SWAN":
             self.send(
-                title="🦢 黑天鵝事件警告",
+                title="🔴 黑天鵝事件警告",
                 description=(
-                    f"🟪 **等級：黑天鵝事件**\n\n"
+                    f"🚨 **重大系統風險事件**\n\n"
                     f"🔎 事件：{reason}\n\n"
                     f"⛔ 建議：全面風險防禦"
                 ),
-                level="BLACK_SWAN",
+                color="RED",
                 channel="black_swan",
             )
+
+    # --------------------------------------------------
+    # 🛑 停盤公告（🔴）
+
+    def trading_halt(self, reason: str):
+        self.send(
+            title="🔴 Guardian 判定今日停盤",
+            description=(
+                f"🛑 **市場風險過高，系統已進入防禦模式**\n\n"
+                f"🔎 原因：{reason}\n\n"
+                f"⛔ 已暫停：\n"
+                f"- Stock-Genius 預測發布\n"
+                f"- Explorer 探索任務\n\n"
+                f"📌 將於下一次 Guardian 檢查後自動恢復"
+            ),
+            color="RED",
+            channel="general",
+        )
