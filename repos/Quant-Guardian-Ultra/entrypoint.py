@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 # ==================================================
-# 🔥 修正 modules 下尾巴有空白的資料夾（只做一次）
+# 🔥 修正 modules 資料夾尾巴空白（一次性）
 # ==================================================
 BASE_DIR = Path(__file__).resolve().parent
 MODULES_DIR = BASE_DIR / "modules"
@@ -18,7 +18,7 @@ if MODULES_DIR.exists():
                 p.rename(fixed)
 
 # ==================================================
-# 🔧 sys.path（repo root）
+# 🔧 sys.path
 # ==================================================
 sys.path.insert(0, str(BASE_DIR))
 
@@ -26,7 +26,7 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# ✅ imports（完全對齊你現有檔案）
+# ✅ imports（完全依你原始介面）
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
@@ -45,9 +45,8 @@ def main():
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
 
-    # ---------- Phase 0：Data Manager（⚠️ positional arg）
-    data_path = BASE_DIR / "data" / "state.json"
-    data_manager = DataManager(str(data_path))
+    # ---------- Phase 0：DataManager（⚠️ 不帶任何參數）
+    data_manager = DataManager()
 
     # ---------- Phase 1：VIX ----------
     print("[PHASE] VIX 恐慌指數掃描")
@@ -83,7 +82,7 @@ def main():
 
     print("[RESULT] Guardian 判定結果：", decision)
 
-    # ---------- Phase 5：寫入共享狀態 ----------
+    # ---------- Phase 5：輸出共享狀態（給 Stock-Genius / Explorer）
     shared_state = {
         "allow_trading": decision.get("level") in ("L1", "L2"),
         "risk_level": decision.get("level"),
