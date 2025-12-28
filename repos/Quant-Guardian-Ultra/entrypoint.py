@@ -1,5 +1,7 @@
 import os
 import sys
+import importlib
+import inspect
 
 # =========================
 # 基本路徑設定
@@ -30,19 +32,38 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # =========================
-# Core imports
+# Core imports（穩定）
 # =========================
 from core.engine import GuardianEngine
 from core.data_manager import DataManager
 from core.notifier import Notifier
 
 # =========================
-# Modules imports（名稱已對齊實際 class）
+# 🔥 動態載入 Scanner（不再猜 class 名）
+# =========================
+def load_first_scanner(module_path: str):
+    """
+    載入模組中第一個 class 名包含 'Scanner' 的 class
+    """
+    module = importlib.import_module(module_path)
+
+    for _, obj in inspect.getmembers(module, inspect.isclass):
+        # 排除 import 進來的 class，只留本模組定義的
+        if obj.__module__ == module.__name__ and "Scanner" in obj.__name__:
+            print(f"[LOAD] {module_path}.{obj.__name__}")
+            return obj
+
+    raise ImportError(f"No Scanner class found in {module_path}")
+
+# =========================
+# Modules imports（穩定）
 # =========================
 from modules.scanners.news import NewsScanner
-from modules.scanners.vix_scanner import VIXFearScanner   # ← 關鍵修正
 from modules.guardians.defense import DefenseGuardian
 from modules.analysts.market_analyst import MarketAnalyst
+
+# 🔥 VIX scanner 動態解析
+VIXScannerClass = load_first_scanner("modules.scanners.vix_scanner")
 
 
 def main():
@@ -53,7 +74,7 @@ def main():
 
     # Scanners
     engine.register_scanner(NewsScanner())
-    engine.register_scanner(VIXFearScanner())
+    engine.register_scanner(VIXScannerClass())
 
     # Guardians
     engine.register_guardian(DefenseGuardian())
