@@ -2,29 +2,26 @@ name: Stock Genius TW
 
 on:
   schedule:
-    # 台股收盤後 13:40 (UTC+8)
-    - cron: "40 5 * * 1-5"
-
+    # 台股收盤後（14:10 台灣時間）
+    - cron: '10 6 * * 1-5'
   workflow_dispatch:
 
 jobs:
   genius_tw:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install -r repos/Stock-Genius-System/requirements.txt
+        working-directory: repos/Stock-Genius-System
+        run: pip install -r requirements.txt
 
-      - name: Run Stock Genius TW
+      - name: Run TW AI
+        working-directory: repos/Stock-Genius-System
         env:
           DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_post.py
+        run: python scripts/ai_tw_post.py
