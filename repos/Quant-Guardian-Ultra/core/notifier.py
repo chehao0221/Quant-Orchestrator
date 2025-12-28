@@ -1,49 +1,52 @@
+# repos/Quant-Guardian-Ultra/core/notifier.py
 import os
 import requests
-import json
 from datetime import datetime
 
 
-class Notifier:
-    """
-    Legacy Notifier（供 core.engine / core.__init__ 使用）
-    """
+class DiscordNotifier:
     def __init__(self):
-        self.webhook = os.getenv("DISCORD_WEBHOOK_URL")
-        if not self.webhook:
-            raise ValueError("DISCORD_WEBHOOK_URL 未設定")
-
-    def send(self, message: str):
-        payload = {
-            "content": message
+        self.webhooks = {
+            "general": os.getenv("DISCORD_WEBHOOK_GENERAL"),
+            "black_swan": os.getenv("DISCORD_WEBHOOK_BLACK_SWAN"),
+            "us": os.getenv("DISCORD_WEBHOOK_US"),
+            "tw": os.getenv("DISCORD_WEBHOOK_TW"),
         }
+
+    def _send(self, webhook_url: str, content: str):
+        if not webhook_url:
+            raise RuntimeError("Discord Webhook 未設定")
+
         response = requests.post(
-            self.webhook,
-            data=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
-            timeout=10
+            webhook_url,
+            json={"content": content},
+            timeout=10,
         )
         response.raise_for_status()
 
+    # ===== 公開 API =====
 
-class DiscordNotifier(Notifier):
-    """
-    擴充型 Discord Notifier（含心跳）
-    """
+    def send_general(self, message: str):
+        self._send(self.webhooks["general"], message)
 
-    # =========================
-    # 🫀 Guardian 每日心跳（繁體中文）
-    # =========================
-    def send_heartbeat(self, status="正常監控中", note=""):
+    def send_black_swan(self, message: str):
+        self._send(self.webhooks["black_swan"], message)
+
+    def send_us(self, message: str):
+        self._send(self.webhooks["us"], message)
+
+    def send_tw(self, message: str):
+        self._send(self.webhooks["tw"], message)
+
+    # ===== 系統心跳（只走 general）=====
+
+    def send_heartbeat(self, status: str = "正常監控中"):
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         message = (
-            "🫀 **Guardian 系統心跳回報**\n\n"
-            f"🟢 系統狀態：**{status}**\n"
-            f"🕒 檢查時間：{now}\n"
-            "🛡 模式：風險監控待命\n"
+            "🛡 **Guardian 系統心跳回報**\n\n"
+            f"系統狀態：{status}\n"
+            f"檢查時間：{now}\n"
+            "模式：風險監控待命\n\n"
+            "備註：系統已完成本次例行檢查，未偵測到異常風險。"
         )
-
-        if note:
-            message += f"\n📌 備註：{note}"
-
-        self.send(message)
+        self.send_general(message)
