@@ -6,25 +6,35 @@ from risk_policy import resolve_risk, now_ts
 DISCORD_WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
 DISCORD_WEBHOOK_BLACK_SWAN = os.getenv("DISCORD_WEBHOOK_BLACK_SWAN")
 
-def send_discord(embed: dict, webhook: str):
+def _send(embed: dict, webhook: str):
     if not webhook:
         return
-    requests.post(webhook, json={"embeds": [embed]}, timeout=10)
+    try:
+        requests.post(
+            webhook,
+            json={"embeds": [embed]},
+            timeout=10
+        )
+    except Exception as e:
+        print(f"[Notifier] Discord send failed: {e}")
 
 def notify_risk(level: int, reason: str):
     policy = resolve_risk(level)
 
-    # L1–L2 → 完全不通知
+    # L1–L2 → 完全不顯示
     if not policy["show"]:
         return
 
-    # L3 / L4+
-    title = "🟡 風險觀察（L3）" if level == 3 else "🔴 黑天鵝事件（L4+）"
-    desc = reason
+    if level == 3:
+        title = "🟡 風險觀察（L3）"
+        webhook = DISCORD_WEBHOOK_GENERAL
+    else:
+        title = "🔴 黑天鵝事件（L4+）"
+        webhook = DISCORD_WEBHOOK_BLACK_SWAN
 
     embed = {
         "title": title,
-        "description": desc,
+        "description": reason,
         "color": policy["color"],
         "fields": [
             {
@@ -43,10 +53,4 @@ def notify_risk(level: int, reason: str):
         }
     }
 
-    # L3 → GENERAL
-    if level == 3:
-        send_discord(embed, DISCORD_WEBHOOK_GENERAL)
-        return
-
-    # L4+ → BLACK_SWAN
-    send_discord(embed, DISCORD_WEBHOOK_BLACK_SWAN)
+    _send(embed, webhook)
