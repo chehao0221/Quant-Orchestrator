@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "updated_at": null,
+
+  "risk_level": 1,
+
+  "l3": {
+    "active": false,
+    "since": null,
+    "reason": null
+  },
+
+  "l4": {
+    "active": false,
+    "since": null,
+    "pause_until": null,
+    "last_end": null
+  },
+
+  "cooldown": {
+    "active": false,
+    "until": null
+  },
+
+  "source": {
+    "last_writer": null
+  }
+}
