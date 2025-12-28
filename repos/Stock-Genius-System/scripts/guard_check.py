@@ -1,18 +1,22 @@
 import json
-import os
 import sys
+from pathlib import Path
 
-STATE_FILE = "../../shared/guardian_state.json"
+STATE_FILE = Path("shared/guardian_state.json")
 
 def check_guardian():
-    if not os.path.exists(STATE_FILE):
-        return True
+    """
+    全系統 Guardian 檢查：
+    - L4 以上：直接凍結（exit）
+    - L1–L3：正常繼續
+    """
+    if not STATE_FILE.exists():
+        return
 
-    with open(STATE_FILE, "r") as f:
-        state = json.load(f)
+    state = json.loads(STATE_FILE.read_text())
+    level = state.get("level", 1)
+    freeze = state.get("freeze", False)
 
-    if not state.get("allow_run", True):
-        print("⛔ Guardian L4：系統暫停（不執行 Stock-Genius）")
+    if freeze or level >= 4:
+        print(f"[Guardian] System frozen at L{level}, exit.")
         sys.exit(0)
-
-    return True
