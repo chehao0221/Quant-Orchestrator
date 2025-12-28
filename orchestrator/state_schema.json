@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GuardianSystemState",
+  "type": "object",
+  "required": [
+    "risk_level",
+    "risk_color",
+    "risk_label",
+    "last_transition"
+  ],
+  "properties": {
+    "risk_level": {
+      "type": "integer",
+      "enum": [1, 2, 3, 4],
+      "description": "Guardian risk level (L1-L4)"
+    },
+    "risk_color": {
+      "type": "string",
+      "enum": ["GREEN", "YELLOW", "RED"]
+    },
+    "risk_label": {
+      "type": "string",
+      "enum": ["STABLE", "WARNING", "DEFENSE"]
+    },
+    "last_transition": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "l4_last_check": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "l4_active": {
+      "type": "boolean"
+    },
+    "source": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    }
+  }
+}
