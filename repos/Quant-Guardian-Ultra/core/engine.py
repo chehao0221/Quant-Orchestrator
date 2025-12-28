@@ -1,4 +1,4 @@
-# Guardian AI Risk Engine (Full Version)
+# Guardian AI Risk Engine - AI Level (Step 2)
 
 from datetime import datetime, timedelta
 import json
@@ -26,29 +26,47 @@ class GuardianEngine:
         with open(STATE_FILE, "w") as f:
             json.dump(self.state, f, indent=2)
 
-    # ===== 核心 AI 判斷（可日後升級）=====
-    def ai_risk_assessment(self):
-        """
-        這裡先用穩定邏輯
-        之後你可以接：
-        - VIX
-        - 黑天鵝事件
-        - News Radar
-        """
-        # ⛔ 現階段：穩定假邏輯（不亂跳）
-        return "L3"   # L1~L4 你之後再換成 AI
+    # ===============================
+    # 🧠 AI 風控核心（可持續升級）
+    # ===============================
+    def ai_risk_score(self):
+        score = 0
+
+        # ① 市場波動代理（先用穩定假值）
+        market_volatility = 35   # 0~100
+        score += market_volatility * 0.4
+
+        # ② 新聞風險（未來接 news_radar）
+        news_risk = 30
+        score += news_risk * 0.3
+
+        # ③ 黑天鵝歷史相似度
+        black_swan_similarity = 20
+        score += black_swan_similarity * 0.3
+
+        return int(score)
+
+    def map_score_to_level(self, score):
+        if score >= 76:
+            return "L4"
+        if score >= 56:
+            return "L3"
+        if score >= 31:
+            return "L2"
+        return "L1"
 
     def run(self):
-        new_level = self.ai_risk_assessment()
+        score = self.ai_risk_score()
+        new_level = self.map_score_to_level(score)
         prev_level = self.state["risk_level"]
 
-        # L4 特殊：90 分鐘才允許再次評估解除
+        # L4：90 分鐘保護
         if prev_level == "L4" and new_level != "L4":
             last = self.state.get("l4_last_check")
             if last:
                 last = datetime.fromisoformat(last)
                 if self.now - last < timedelta(minutes=90):
-                    return None  # ⛔ 不發、不變
+                    return None
 
         changed = new_level != prev_level
 
@@ -61,7 +79,7 @@ class GuardianEngine:
         if changed:
             self.state["last_change"] = self.now.isoformat()
             self._save_state()
-            return self._build_payload(changed=True)
+            return self._build_payload(score)
 
         self._save_state()
         return None
@@ -74,21 +92,19 @@ class GuardianEngine:
             "L4": "RED"
         }[level]
 
-    def _build_payload(self, changed):
+    def _build_payload(self, score):
         level = self.state["risk_level"]
-        status = self.state["status"]
-
         return {
-            "title": "Guardian 風控狀態更新",
+            "title": "Guardian AI 風控狀態更新",
             "risk_level": level,
-            "status": status,
-            "message": self._message(level),
+            "status": self.state["status"],
+            "message": self._message(level, score),
             "timestamp": self.now.isoformat()
         }
 
-    def _message(self, level):
+    def _message(self, level, score):
         if level == "L4":
-            return "🔴 系統進入全面防禦（不交易）"
+            return f"🔴 AI 判定高風險（Score {score}），系統全面防禦"
         if level == "L3":
-            return "🟡 風險升溫，請保守應對"
-        return "🟢 市場穩定"
+            return f"🟡 AI 偵測風險升溫（Score {score}），請保守應對"
+        return f"🟢 市場穩定（Score {score}）"
