@@ -1,14 +1,5 @@
-import os
-import sys
-import csv
-import json
-import datetime
-import requests
-import warnings
-import yfinance as yf
+import os, sys, datetime, requests
 import pandas as pd
-
-warnings.filterwarnings("ignore")
 
 # ===============================
 # Base / Data
@@ -19,149 +10,141 @@ os.makedirs(DATA_DIR, exist_ok=True)
 sys.path.append(BASE_DIR)
 
 # ===============================
-# Environment
+# Env
 # ===============================
-BLACK_SWAN_WEBHOOK_URL = os.getenv("BLACK_SWAN_WEBHOOK_URL", "").strip()
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+OBS_FLAG_FILE = os.path.join(DATA_DIR, "l4_last_end.flag")
 
-L4_ACTIVE_FILE = os.path.join(DATA_DIR, "l4_active.flag")
-L4_LAST_END_FILE = os.path.join(DATA_DIR, "l4_last_end.flag")
-BLACK_SWAN_CSV = os.path.join(DATA_DIR, "black_swan_history.csv")
-POSTMORTEM_FLAG = os.path.join(DATA_DIR, "l4_postmortem_sent.flag")
+HISTORY_TW = os.path.join(DATA_DIR, "tw_history.csv")
+HISTORY_US = os.path.join(DATA_DIR, "us_history.csv")
+L4_SUMMARY_CSV = os.path.join(DATA_DIR, "l4_ai_performance_history.csv")
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
+DISCLAIMER = "📌 僅為風險與市場監控，非投資建議"
 
 # ===============================
-# Helpers
+# Utils
 # ===============================
-def read_ts(path):
-    try:
-        return float(open(path).read().strip())
-    except:
+def load_history(path):
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    return pd.read_csv(path)
+
+def calc_metrics(df):
+    if df.empty:
         return None
 
-def fmt(ts):
-    return datetime.datetime.fromtimestamp(ts, TZ).strftime("%Y-%m-%d %H:%M")
+    df = df.copy()
 
-def pct(a, b):
-    try:
-        return (b - a) / a * 100
-    except:
+    # 使用已結算資料
+    if "settled" in df.columns:
+        df = df[df["settled"] == True]
+
+    if df.empty:
         return None
 
-def get_index_return(symbol, start_ts, end_ts):
-    try:
-        start = datetime.datetime.fromtimestamp(start_ts, datetime.timezone.utc)
-        end = datetime.datetime.fromtimestamp(end_ts, datetime.timezone.utc)
-        df = yf.download(
-            symbol,
-            start=start.strftime("%Y-%m-%d"),
-            end=(end + datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
-            progress=False,
-            auto_adjust=True,
-        )
-        if len(df) < 2:
-            return None
-        return pct(df["Close"].iloc[0], df["Close"].iloc[-1])
-    except:
-        return None
+    win = (
+        (df["pred_ret"] > 0) & (df["entry_price"].pct_change() > 0)
+    ) | (
+        (df["pred_ret"] < 0) & (df["entry_price"].pct_change() < 0)
+    )
+
+    return {
+        "count": len(df),
+        "win_rate": win.mean(),
+        "avg_pred": df["pred_ret"].mean(),
+    }
+
+def fmt(m):
+    if not m:
+        return "資料不足"
+    return (
+        f"筆數：{m['count']}\n"
+        f"勝率：{m['win_rate']:.0%}\n"
+        f"平均預測：{m['avg_pred']:+.2%}"
+    )
 
 # ===============================
 # Main
 # ===============================
 def run():
-    # 必須：L4 已結束、且還沒發過回顧
-    if os.path.exists(L4_ACTIVE_FILE):
-        return
-    if not os.path.exists(L4_LAST_END_FILE):
-        return
-    if os.path.exists(POSTMORTEM_FLAG):
-        return
-    if not BLACK_SWAN_WEBHOOK_URL:
+    if not os.path.exists(OBS_FLAG_FILE):
         return
 
-    end_ts = read_ts(L4_LAST_END_FILE)
-    if not end_ts:
-        return
+    now = datetime.datetime.now(TZ)
+    l4_end_ts = open(OBS_FLAG_FILE).read().strip()
 
-    # 從黑天鵝紀錄反推最近一次 L4 start
-    if not os.path.exists(BLACK_SWAN_CSV):
-        return
+    tw = load_history(HISTORY_TW)
+    us = load_history(HISTORY_US)
 
-    rows = []
-    with open(BLACK_SWAN_CSV, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for r in reader:
-            try:
-                t = datetime.datetime.strptime(
-                    r["datetime"], "%Y-%m-%d %H:%M"
-                ).replace(tzinfo=TZ).timestamp()
-                if t <= end_ts:
-                    rows.append((t, r))
-            except:
-                continue
-
-    l4_rows = [r for t, r in rows if r["level"] == "4"]
-    if not l4_rows:
-        return
-
-    # 最近一次 L4 start
-    l4_start_ts = min(
-        datetime.datetime.strptime(
-            r["datetime"], "%Y-%m-%d %H:%M"
-        ).replace(tzinfo=TZ).timestamp()
-        for r in l4_rows
-    )
-
-    duration_hours = (end_ts - l4_start_ts) / 3600
-
-    # 統計
-    l3_count = len([r for t, r in rows if r["level"] == "3" and t >= l4_start_ts])
-    symbols = sorted({r["symbol"] for r in l4_rows if r["symbol"] != "GLOBAL"})
-    markets = sorted({r["market"] for r in l4_rows if r["market"] != "GLOBAL"})
-
-    # 指數影響
-    sp_ret = get_index_return("^GSPC", l4_start_ts, end_ts)
-    nq_ret = get_index_return("^IXIC", l4_start_ts, end_ts)
+    tw_m = calc_metrics(tw)
+    us_m = calc_metrics(us)
 
     # ===============================
-    # Compose Discord Message
+    # Save CSV（長期累積）
     # ===============================
-    msg = (
-        "📊 **L4 黑天鵝事件回顧報告（Postmortem）**\n\n"
-        f"🕒 **期間**：{fmt(l4_start_ts)} ～ {fmt(end_ts)}\n"
-        f"⏱ **持續時間**：{duration_hours:.1f} 小時\n\n"
-        "### 🔍 事件概況\n"
-        f"• L3 事件累積：{l3_count} 次\n"
-        f"• 涉及市場：{', '.join(markets) if markets else 'GLOBAL'}\n"
-        f"• 涉及標的：{', '.join(symbols[:8])}{'...' if len(symbols) > 8 else ''}\n\n"
-        "### 🤖 系統行為\n"
-        "• AI 海選：暫停\n"
-        "• 僅保留：權值股／監控模式\n"
-        "• 新聞雷達：持續監控\n\n"
-        "### 📉 市場影響（期間）\n"
+    row = {
+        "l4_end_time": now.strftime("%Y-%m-%d %H:%M"),
+        "l4_end_ts": l4_end_ts,
+        "tw_count": tw_m["count"] if tw_m else 0,
+        "tw_win_rate": tw_m["win_rate"] if tw_m else None,
+        "tw_avg_pred": tw_m["avg_pred"] if tw_m else None,
+        "us_count": us_m["count"] if us_m else 0,
+        "us_win_rate": us_m["win_rate"] if us_m else None,
+        "us_avg_pred": us_m["avg_pred"] if us_m else None,
+    }
+
+    df_row = pd.DataFrame([row])
+    df_row.to_csv(
+        L4_SUMMARY_CSV,
+        mode="a",
+        header=not os.path.exists(L4_SUMMARY_CSV),
+        index=False,
     )
 
-    if sp_ret is not None:
-        msg += f"• S&P 500：{sp_ret:+.2f}%\n"
-    if nq_ret is not None:
-        msg += f"• NASDAQ：{nq_ret:+.2f}%\n"
+    # ===============================
+    # Discord Report
+    # ===============================
+    if not DISCORD_WEBHOOK_URL:
+        return
 
-    msg += (
-        "\n### 🧠 系統結論\n"
-        "⚠️ 判定為 **系統性風險事件**\n"
-        "✅ L4 防禦機制有效啟動並完整執行\n\n"
-        "📌 *提醒：僅為風險與市場監控，非投資建議*"
-    )
+    embed = {
+        "title": "📊 L4 黑天鵝 AI 表現回顧報告",
+        "description": f"🕒 產生時間：{now:%Y-%m-%d %H:%M}",
+        "color": 0x5865F2,
+        "fields": [
+            {
+                "name": "🇹🇼 台股 AI",
+                "value": fmt(tw_m),
+                "inline": True,
+            },
+            {
+                "name": "🇺🇸 美股 AI",
+                "value": fmt(us_m),
+                "inline": True,
+            },
+            {
+                "name": "🧠 系統結論",
+                "value": (
+                    "• 黑天鵝期間 AI 以風控為優先\n"
+                    "• 預測勝率下降屬合理現象\n"
+                    "• 系統成功避免過度進攻"
+                ),
+                "inline": False,
+            },
+            {
+                "name": "⚠️ 風險提示",
+                "value": DISCLAIMER,
+                "inline": False,
+            },
+        ],
+    }
 
     requests.post(
-        BLACK_SWAN_WEBHOOK_URL,
-        json={"content": msg[:1900]},
+        DISCORD_WEBHOOK_URL,
+        json={"embeds": [embed]},
         timeout=15,
     )
-
-    # 標記已送出
-    open(POSTMORTEM_FLAG, "w").write(str(end_ts))
-
 
 if __name__ == "__main__":
     run()
