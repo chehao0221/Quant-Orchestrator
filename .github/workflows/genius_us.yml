@@ -1,41 +1,34 @@
 name: Stock Genius US
 
 on:
-  workflow_dispatch:
   schedule:
-    # 美股盤後 1 小時（UTC 06:30）
-    - cron: "30 6 * * 1-5"
-
-permissions:
-  contents: read
+    - cron: "30 21 * * 1-5"   # 美股交易日前
+  workflow_dispatch:
 
 jobs:
-  pause-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Guardian Pause Gate (US)
-        run: |
-          python shared/check_guardian_gate.py US
-
   genius-us:
-    needs: pause-gate
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      # ⭐ 先檢查系統狀態
+      - name: Check system state
+        run: |
+          python orchestrator/state_reader.py
+
+      - name: Install Genius dependencies
         run: |
           pip install -r repos/Stock-Genius-System/requirements.txt
 
       - name: Run US Genius
-        env:
-          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
         run: |
           python repos/Stock-Genius-System/scripts/ai_us_post.py
+        env:
+          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
