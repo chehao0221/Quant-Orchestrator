@@ -1,12 +1,3 @@
-# ====== FORCE PROJECT ROOT INTO PYTHONPATH ======
-import os
-import sys
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-# ===============================================
-
 import hashlib
 from datetime import datetime
 import pytz
@@ -16,7 +7,6 @@ from modules.scanners.news import NewsScanner
 from modules.scanners.vix_scanner import VixScanner
 from modules.guardians.defense import DefenseManager
 from modules.analysts.market_analyst import MarketAnalyst
-
 
 def main():
     engine = GuardianEngine()
@@ -82,7 +72,6 @@ def main():
                         f"收盤價：{res['price']}\n預測報酬：{res['pred']:.2%}",
                         color=0x3498db
                     )
-
 
 if __name__ == "__main__":
     main()
