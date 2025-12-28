@@ -2,7 +2,7 @@ name: Guardian System
 
 on:
   schedule:
-    - cron: '30 21 * * *'   # 盤後風控（UTC）
+    - cron: '30 21 * * *'
   workflow_dispatch:
 
 jobs:
