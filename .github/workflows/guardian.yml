@@ -19,13 +19,12 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install dependencies (Guardian)
+      - name: Install Guardian dependencies
         run: |
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
       - name: Run Quant-Guardian-Ultra
         env:
-          # 🔑 關鍵：讓 modules / core 成為 top-level package
           PYTHONPATH: repos/Quant-Guardian-Ultra
         run: |
           python repos/Quant-Guardian-Ultra/entrypoint.py
