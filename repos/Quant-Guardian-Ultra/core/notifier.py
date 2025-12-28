@@ -1,4 +1,3 @@
-# core/notifier.py
 import os
 import requests
 from risk_policy import resolve_risk, now_ts
@@ -6,22 +5,18 @@ from risk_policy import resolve_risk, now_ts
 DISCORD_WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
 DISCORD_WEBHOOK_BLACK_SWAN = os.getenv("DISCORD_WEBHOOK_BLACK_SWAN")
 
-def _send(embed: dict, webhook: str):
+def _send(embed, webhook):
     if not webhook:
         return
     try:
-        requests.post(
-            webhook,
-            json={"embeds": [embed]},
-            timeout=10
-        )
+        requests.post(webhook, json={"embeds": [embed]}, timeout=10)
     except Exception as e:
-        print(f"[Notifier] Discord send failed: {e}")
+        print(f"[Notifier] Discord error: {e}")
 
 def notify_risk(level: int, reason: str):
     policy = resolve_risk(level)
 
-    # L1–L2 → 完全不顯示
+    # L1–L2 完全靜默
     if not policy["show"]:
         return
 
@@ -37,19 +32,11 @@ def notify_risk(level: int, reason: str):
         "description": reason,
         "color": policy["color"],
         "fields": [
-            {
-                "name": "🕒 事件時間",
-                "value": now_ts(),
-                "inline": False
-            },
-            {
-                "name": "📊 系統行為",
-                "value": policy["action"],
-                "inline": False
-            }
+            {"name": "🕒 時間", "value": now_ts(), "inline": False},
+            {"name": "📊 系統行為", "value": policy["action"], "inline": False}
         ],
         "footer": {
-            "text": "Quant Guardian · Risk Control Layer"
+            "text": "Quant Guardian · Risk Control"
         }
     }
 
