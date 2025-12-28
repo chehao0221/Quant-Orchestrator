@@ -4,7 +4,10 @@ import json
 from datetime import datetime
 
 
-class DiscordNotifier:
+class Notifier:
+    """
+    Legacy Notifier（供 core.engine / core.__init__ 使用）
+    """
     def __init__(self):
         self.webhook = os.getenv("DISCORD_WEBHOOK_URL")
         if not self.webhook:
@@ -22,10 +25,16 @@ class DiscordNotifier:
         )
         response.raise_for_status()
 
+
+class DiscordNotifier(Notifier):
+    """
+    擴充型 Discord Notifier（含心跳）
+    """
+
     # =========================
     # 🫀 Guardian 每日心跳（繁體中文）
     # =========================
-    def send_heartbeat(self, status="正常", note=""):
+    def send_heartbeat(self, status="正常監控中", note=""):
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         message = (
             "🫀 **Guardian 系統心跳回報**\n\n"
