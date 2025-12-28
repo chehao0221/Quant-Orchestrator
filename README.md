@@ -30,36 +30,35 @@ Quant-Orchestrator 是一套 **非交易型 AI 市場觀測系統**，
 Quant-Orchestrator/
 │
 ├─ .github/
-│   └─ workflows/                     ← 工作流程排程層
-│      ├─ guardian.yml
-│      ├─ genius_tw.yml
-│      ├─ genius_us.yml
-│      └─ explorer.yml
+│   └─ workflows/                     # ⏱ GitHub Actions 排程層（只負責「什麼時候跑」）
+│      ├─ guardian.yml                # 風控排程
+│      ├─ genius_tw.yml               # 台股 AI 預測排程
+│      ├─ genius_us.yml               # 美股 AI 預測排程
+│      └─ explorer.yml                # Explorer / 資料更新排程
 │
-├─ orchestrator/                     ← Orchestrator 層程式
+├─ orchestrator/                      # 🧠 Orchestrator（狀態中樞，不做業務）
 │   ├─ __init__.py
-│   ├─ state_adapter.py
-│   ├─ state_machine.py
-│   ├─ state_reader.py
-│   ├─ state_writer.py
-│   ├─ system_state.json             ← workflow 共享的系統狀態
-│   └─ state_schema.json             ← 定義狀態的 schema（可選）
+│   ├─ state_adapter.py               # 各系統狀態轉接器
+│   ├─ state_machine.py               # 紅 / 黃 / 綠 狀態機
+│   ├─ state_reader.py                # 唯一讀狀態入口
+│   ├─ state_writer.py                # 唯一寫狀態入口
+│   ├─ system_state.json              # workflow 共享狀態（runtime）
+│   └─ state_schema.json              # 狀態結構定義（可選，但很加分）
 │
 ├─ repos/
-│   ├─ Quant-Guardian-Ultra/         ← 風控主系統
+│   ├─ Quant-Guardian-Ultra/           # 🛡 風控主系統（判定能不能說話）
 │   │   ├─ core/
-│   │   │   ├─ engine.py
-│   │   │   ├─ notifier.py
-│   │   │   ├─ risk_policy.py         ← 風控決策表
-│   │   │   └─ …其他 Guardian 程式
+│   │   │   ├─ engine.py               # Guardian 主流程
+│   │   │   ├─ notifier.py             # Discord 通知（紅黃綠）
+│   │   │   ├─ risk_policy.py          # L1–L4 風控決策表（AI 可調）
+│   │   │   └─ ...
 │   │   │
-│   │   ├─ modules/
-│   │   ├─ data/
-│   │   │   └─ …Guardian 自己的 state
-│   │   ├─ entrypoint.py              ← workflow 入口
+│   │   ├─ modules/                    # Guardian 子模組
+│   │   ├─ data/                       # Guardian 自己的歷史 / cache
+│   │   ├─ entrypoint.py               # workflow 唯一入口
 │   │   └─ requirements.txt
 │   │
-│   └─ Stock-Genius-System/           ← 市場分析系統
+│   └─ Stock-Genius-System/            # 📈 市場分析系統（只分析，不交易）
 │       ├─ data/
 │       │   ├─ tw_history.csv
 │       │   ├─ us_history.csv
@@ -74,23 +73,24 @@ Quant-Orchestrator/
 │       │   ├─ equity_TW.png
 │       │   └─ equity_US.png
 │       │
-│       ├─ scripts/                   ← 實際市場分析與 data pipeline
-│       │   ├─ ai_tw_post.py
-│       │   ├─ ai_us_post.py
+│       ├─ scripts/                    # 🔍 AI 分析與 pipeline
+│       │   ├─ ai_tw_post.py            # 台股 AI 預測輸出
+│       │   ├─ ai_us_post.py            # 美股 AI 預測輸出
 │       │   ├─ update_tw_explorer_pool.py
 │       │   ├─ update_us_explorer_pool.py
 │       │   ├─ safe_yfinance.py
 │       │   ├─ news_radar.py
 │       │   ├─ performance_dashboard.py
-│       │   └─ l4_*.py                 ← L4 事件相關
+│       │   └─ l4_*.py                  # L4 事件處理（靜默 / 保護）
 │       │
 │       ├─ requirements.txt
 │       └─ README.md
 │
 ├─ shared/
-│   └─ guardian_state.json           ← 全系統唯一的狀態真相（master store）
+│   └─ guardian_state.json             # 🔒 全系統唯一「狀態真相來源」（master store）
 │
-└─ README.md                         ← Orchestrator 介紹與說明
+└─ README.md                           # Orchestrator 總說明
+
 ```
 
 
