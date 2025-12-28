@@ -23,45 +23,58 @@
 ```
 Quant-Orchestrator/
 │
-├─ .github/workflows/
-│  ├─ guardian.yml            ✅ 存在、可跑
-│  ├─ genius_tw.yml           ✅ 存在、可跑
-│  ├─ genius_us.yml           ✅ 存在、可跑
-│  └─ explorer.yml            ✅ 存在、可跑
+├─ .github/
+│  └─ workflows/
+│     ├─ guardian.yml
+│     ├─ genius_tw.yml
+│     ├─ genius_us.yml
+│     └─ explorer.yml
 │
 ├─ repos/
+│  │
 │  ├─ Quant-Guardian-Ultra/
-│  │  ├─ entrypoint.py        ⚠️ 被多次修補，功能全但 contract 混亂
-│  │  ├─ core/
-│  │  │  ├─ engine.py         ✅ 原本 Guardian Engine（未被破壞）
-│  │  │  ├─ notifier.py       ⚠️ 方法名與 entrypoint 不完全一致
-│  │  │  ├─ data_manager.py   ⚠️ __init__ 介面被多次誤用
-│  │  │  └─ __init__.py
-│  │  ├─ modules/
-│  │  │  ├─ scanners/
-│  │  │  │  ├─ vix_scanner.py ✅ 可用
-│  │  │  │  ├─ news.py        ⚠️ 需要 DataManager 注入
-│  │  │  │  └─ __init__.py
-│  │  │  ├─ guardians/
-│  │  │  │  ├─ defense.py     ⚠️ evaluate() 參數期望與呼叫端不一致
-│  │  │  │  └─ __init__.py
-│  │  │  ├─ analysts/
-│  │  │  │  ├─ market_analyst.py ⚠️ analyze(symbol) 被當成無參數使用
-│  │  │  │  └─ __init__.py
-│  │  │  └─ __init__.py
-│  │  ├─ data/state.json      ⚠️ 有檔案，但 Guardian 現在沒穩定用它
-│  │  └─ requirements.txt
+│  │   ├─ entrypoint.py
+│  │   ├─ core/
+│  │   │   ├─ engine.py
+│  │   │   ├─ notifier.py
+│  │   │   ├─ data_manager.py
+│  │   │   └─ __init__.py
+│  │   ├─ modules/
+│  │   │   ├─ scanners/
+│  │   │   │   ├─ news.py
+│  │   │   │   ├─ vix_scanner.py
+│  │   │   │   └─ __init__.py
+│  │   │   ├─ guardians/
+│  │   │   │   ├─ defense.py
+│  │   │   │   └─ __init__.py
+│  │   │   ├─ analysts/
+│  │   │   │   ├─ market_analyst.py
+│  │   │   │   └─ __init__.py
+│  │   │   └─ __init__.py
+│  │   ├─ data/
+│  │   │   └─ state.json
+│  │   ├─ requirements.txt
+│  │   └─ README.md
 │  │
 │  └─ Stock-Genius-System/
-│     ├─ scripts/
-│     │  ├─ ai_tw_post.py     ✅ 台股 AI（可獨立跑）
-│     │  ├─ ai_us_post.py     ✅ 美股 AI（可獨立跑）
-│     │  ├─ update_*          ✅ Explorer pool
-│     │  └─ ...
-│     └─ data/
+│      ├─ scripts/
+│      │   ├─ ai_tw_post.py
+│      │   ├─ ai_us_post.py
+│      │   ├─ ai_tw_explorer_post.py
+│      │   ├─ ai_us_explorer_post.py
+│      │   ├─ update_tw_explorer_pool.py
+│      │   ├─ update_us_explorer_pool.py
+│      │   └─ safe_yfinance.py
+│      ├─ data/
+│      │   ├─ tw_history.csv
+│      │   ├─ us_history.csv
+│      │   ├─ explorer_pool_tw.json
+│      │   └─ explorer_pool_us.json
+│      ├─ requirements.txt
+│      └─ README.md
 │
 ├─ shared/
-│  └─ state.json              ⚠️ 存在，但你期待的 guardian_state.json 不穩定
+│  └─ guardian_state.json    🔑 唯一 pause gate state
 │
 └─ README.md
 
