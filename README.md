@@ -1,24 +1,30 @@
 # Quant-Orchestrator
-
-> **系統定位**
->
-> Quant-Orchestrator 是一個「排程與協調層（Orchestration Layer）」  
-> 專門負責在正確的時間，啟動正確的量化系統。
->
-> ❌ 不做分析  
-> ❌ 不訓練模型  
-> ❌ 不處理市場資料  
-> ✅ 只負責排程與系統解耦
+AI 市場預測・回測・風控整合系統（非交易）
 
 ---
 
-## 一、整體目錄結構（最終版）
+## 一、系統定位（非常重要）
 
+Quant-Orchestrator 是一套 **非交易型 AI 市場觀測系統**，  
+專注於：
 
+- 📊 AI 股票預測（研究用途）
+- 📈 歷史回測與模型穩定性觀測
+- 🛡️ 市場風險判定（紅 / 黃 / 綠）
+- 🔔 Discord 定時公告
+
+❌ 不下單  
+❌ 不自動交易  
+❌ 不連券商  
+❌ 不即時喊單  
+
+本系統所有輸出 **僅供研究與市場觀測參考**。
 
 ---
 
-## 🧩 架構總覽
+## 二、整體架構總覽
+
+
 
 ```
 Quant-Orchestrator/
@@ -85,115 +91,107 @@ Quant-Orchestrator/
 │   └─ guardian_state.json           ← 全系統唯一的狀態真相（master store）
 │
 └─ README.md                         ← Orchestrator 介紹與說明
-
+```
 
 
 ```
 
----
-
-## 二、Workflow 分工（單一職責原則）
-
-### 1️⃣ guardian.yml — 風控唯一入口
-
-**負責系統**
-- Quant-Guardian-Ultra
-
-**職責**
-- 新聞雷達掃描
-- 黑天鵝事件偵測
-- L1 → L4 風險分級
-- 去重播報（state.json）
-
-**Discord 頻道**
-- 一般 / 系統訊息
-- 黑天鵝專用頻道
-
-**原則**
-- 不跑 AI
-- 不管股池
-- 不影響任何其他系統
 
 ---
 
-### 2️⃣ genius.yml — Lv1 核心 AI 系統
+## 三、三大系統角色（責任邊界）
 
-**負責系統**
-- Stock-Genius-System
+### 🛡️ Guardian（Quant-Guardian-Ultra）
 
-**職責**
-- 🇹🇼 台股核心股 AI
-- 🇺🇸 美股核心股 AI
-- 固定 Horizon（Freeze）
-- 僅輸出預測與歷史觀測
+**唯一職責：**
+判定「現在是否適合解讀 AI 預測」
 
-**Discord 頻道**
-- 🇹🇼 台股頻道
-- 🇺🇸 美股頻道
-
-**原則**
-- 不跑 Explorer
-- 不做風控
-- 不依賴 Guardian 狀態
+- 輸出三種狀態：
+  - 🟢 綠（L1–L2）：穩定
+  - 🟡 黃（L3）：警戒
+  - 🔴 紅（L4）：全面防禦
+- 🔴 L4 時：
+  - Stock-Genius 停止對外發布
+  - Explorer 停止更新
+- 每 90 分鐘重新進行 AI 判定
+- 不分析個股
+- 不產生預測內容
 
 ---
 
-### 3️⃣ explorer.yml — Lv2 Explorer（可選）
+### 📈 Stock-Genius-System
 
-**負責系統**
-- Stock-Genius-System（Explorer 模組）
+**唯一職責：**
+在 Guardian 允許時，定時輸出 AI 預測與回測結果
 
-**職責**
-- 更新台 / 美股成交量 Top 500 股池
-- Explorer AI 潛力股排序
-- 僅顯示 Top 5
-
-**Discord 頻道**
-- 🇹🇼 台股頻道（Explorer 區塊）
-- 🇺🇸 美股頻道（Explorer 區塊）
-
-**原則**
-- 不寫歷史
-- 不影響風控
-- 可隨時停用
+- 🇺🇸 美股 / 🇹🇼 台股分離
+- 固定顯示「指定核心標的」
+- 自動海選：
+  - 交易量前 500
+  - 技術面 + 消息面
+  - 潛力黑馬 Top 5
+- 僅研究用途
+- 不交易、不即時、不洗頻
 
 ---
 
-## 三、Discord Webhook 對應表（鎖定）
-```
-| 用途 | Secret 名稱 |
-|----|----|----|
+### 🧩 Explorer
+
+**唯一職責：**
+背景資料與股池更新
+
+- 不對外發聲
+- Guardian L4 時暫停
+- 提供 AI 模型背景資料
+
+---
+
+## 四、Discord Webhook（唯一出口）
+
+| 類型 | Webhook |
+|----|----|
 | 一般 / 系統 | DISCORD_WEBHOOK_GENERAL |
 | 黑天鵝 | DISCORD_WEBHOOK_BLACK_SWAN |
 | 美股 | DISCORD_WEBHOOK_US |
 | 台股 | DISCORD_WEBHOOK_TW |
-```
-> Quant-Orchestrator 只負責「轉交 Secrets」，不產生任何訊息內容。
+
+**發送規則：**
+- 🔴 → 🟢 僅發一次
+- 🟡 → 🟢 需要發
+- 綠色穩定狀態不重複通知
 
 ---
 
-## 四、為什麼要用 Orchestrator
+## 五、時間策略（固定、不重複）
 
-- GitHub Actions 上限風險 → **排程分流**
-- 任務互相卡死 → **系統完全解耦**
-- 想停 Explorer → 關 explorer.yml
-- 想只留風控 → 只留 guardian.yml
-- 未來加新系統 → 新增 workflow 即可
-
----
-
-## 五、系統不變承諾
-
-- Quant-Guardian-Ultra：❌ 不修改
-- Stock-Genius-System：❌ 不修改
-- 所有控制只在 `.github/workflows`
-- Discord 只靠 Secrets 切換
-- 可長期穩定運行
+- Guardian：每 90 分鐘
+- 美股 AI：收盤後一次
+- 台股 AI：收盤後一次
+- Explorer：夜間或指定時段
 
 ---
 
-## 一句話總結
+## 六、合規聲明
 
-**Quant-Orchestrator 是指揮官，不是士兵。**  
-它只負責：在對的時間，叫對的系統出來工作。
+- 本系統不構成任何投資建議
+- 所有預測皆為機率推估
+- 僅供研究與市場觀測使用
+
+---
+
+## 七、接手原則（三句話）
+
+1. Guardian 決定能不能說話  
+2. Stock-Genius 只負責說內容  
+3. Explorer 永遠不對外  
+
+違反任一條，系統即不再屬於本設計。
+
+---
+
+## 最終定錨
+
+Quant-Orchestrator 是一套  
+**可長期自動運行、風控清楚、對外安全的 AI 市場研究系統。**
+
 
