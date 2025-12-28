@@ -26,7 +26,7 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# ✅ imports（完全依你原始介面）
+# imports（完全尊重原始介面）
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
@@ -45,7 +45,7 @@ def main():
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
 
-    # ---------- Phase 0：DataManager（⚠️ 不帶任何參數）
+    # ---------- Phase 0：DataManager
     data_manager = DataManager()
 
     # ---------- Phase 1：VIX ----------
@@ -60,14 +60,24 @@ def main():
     news_events = news_scanner.scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
-    # ---------- Phase 3：市場分析 ----------
+    # ---------- Phase 3：市場分析（容錯，不中斷 Guardian） ----------
     print("[PHASE] 市場分析（台 / 美）")
 
-    tw_analyst = MarketAnalyst("TW")
-    us_analyst = MarketAnalyst("US")
+    def safe_market_analysis(market: str):
+        try:
+            analyst = MarketAnalyst(market)
+            return analyst.analyze()
+        except Exception as e:
+            print(f"[WARN] {market} 市場分析失敗：{e}")
+            return {
+                "market": market,
+                "status": "error",
+                "signal": "UNKNOWN",
+                "confidence": 0.0,
+            }
 
-    tw_result = tw_analyst.analyze()
-    us_result = us_analyst.analyze()
+    tw_result = safe_market_analysis("TW")
+    us_result = safe_market_analysis("US")
 
     # ---------- Phase 4：風控判斷 ----------
     print("[PHASE] 風控評估")
@@ -82,11 +92,12 @@ def main():
 
     print("[RESULT] Guardian 判定結果：", decision)
 
-    # ---------- Phase 5：輸出共享狀態（給 Stock-Genius / Explorer）
+    # ---------- Phase 5：輸出共享狀態（Stock-Genius / Explorer）
     shared_state = {
         "allow_trading": decision.get("level") in ("L1", "L2"),
         "risk_level": decision.get("level"),
         "action": decision.get("action"),
+        "reason": decision.get("reason", ""),
     }
 
     shared_path = BASE_DIR.parent.parent / "shared" / "guardian_state.json"
@@ -99,7 +110,7 @@ def main():
     if not shared_state["allow_trading"]:
         notifier.trading_halt(
             level=shared_state["risk_level"],
-            reason="市場風險過高（VIX / 新聞 / 市場分析）",
+            reason="Guardian 判定風險偏高，系統暫停交易",
         )
 
     print("[GUARDIAN] 本次盤後風控流程完成")
