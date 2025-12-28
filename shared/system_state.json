@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "updated_at": "2025-01-01T08:30:00+08:00",
+
+  "risk_level": 2,
+
+  "l3": {
+    "active": false,
+    "since": null,
+    "reason": null
+  },
+
+  "l4": {
+    "active": false,
+    "since": null,
+    "pause_until": null,
+    "last_end": null
+  },
+
+  "cooldown": {
+    "active": false,
+    "until": null
+  }
+}
