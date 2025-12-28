@@ -2,27 +2,26 @@ name: Stock Genius US
 
 on:
   schedule:
-    # 美股收盤後一次
-    - cron: "30 21 * * 1-5"
+    - cron: "30 21 * * 1-5"  # 美股收盤後（UTC）
   workflow_dispatch:
 
 jobs:
   genius-us:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
-      - name: Install dependencies
-        run: pip install -r repos/Stock-Genius-System/requirements.txt
+      - name: Install deps
+        run: |
+          pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run US AI Report
-        run: python repos/Stock-Genius-System/scripts/ai_us_post.py
+      - name: Run US AI
         env:
           DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
+        run: |
+          python repos/Stock-Genius-System/scripts/ai_us_post.py
