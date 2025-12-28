@@ -5,8 +5,10 @@ on:
     # 台股 Explorer（盤後）
     - cron: "45 5 * * 1-5"
 
-    # 美股 Explorer（盤後）
+    # 美股 Explorer（夏令）
     - cron: "30 21 * * 1-5"
+
+    # 美股 Explorer（冬令）
     - cron: "30 22 * * 1-5"
 
   workflow_dispatch:
