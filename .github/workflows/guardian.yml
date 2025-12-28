@@ -1,37 +1,35 @@
-name: Guardian System
+name: Guardian Risk Monitor
 
 on:
-  workflow_dispatch:
-
   schedule:
-    # 📰 一般新聞－盤前（台灣 08:30）
-    - cron: "30 0 * * 1-5"
-
-    # 📰 一般新聞－盤後（台灣 18:00）
-    - cron: "0 10 * * 1-5"
-
-    # 🦢 黑天鵝監控－每 90 分鐘
-    - cron: "*/90 * * * *"
+    - cron: "0 * * * *"   # 每小時
+  workflow_dispatch:
 
 jobs:
   guardian:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Guardian dependencies
         run: |
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
       - name: Run Guardian
+        run: |
+          python repos/Quant-Guardian-Ultra/entrypoint.py
         env:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
           DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
+
+      # ⭐ 關鍵整合：同步系統狀態（唯一新增）
+      - name: Sync system state
         run: |
-          python repos/Quant-Guardian-Ultra/entrypoint.py
+          python orchestrator/state_writer.py
