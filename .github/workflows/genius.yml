@@ -3,33 +3,35 @@ name: Stock Genius System
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 6 * * 1-5"   # 美股盤後 1 小時（UTC 06:30 ≈ 美股收盤後）
+    # 🇺🇸 美股盤後 1 小時（UTC 06:30，約美股收盤後）
+    - cron: "30 6 * * 1-5"
 
 jobs:
   guardian-gate:
+    name: Guardian Pause Gate
     runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.gate.outcome }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Guardian Pause Gate
-        id: gate
+      - name: Check Guardian State
         run: |
           python shared/check_guardian_gate.py
 
-  genius:
+  genius-us:
+    name: Stock Genius – US Market
     needs: guardian-gate
-    if: needs.guardian-gate.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -40,8 +42,8 @@ jobs:
         run: |
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run Stock Genius
+      - name: Run US AI Prediction
         env:
           DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
         run: |
-          python repos/Stock-Genius-System/main.py
+          python repos/Stock-Genius-System/scripts/ai_us_post.py
