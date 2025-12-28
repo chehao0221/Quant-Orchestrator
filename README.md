@@ -30,66 +30,70 @@ Quant-Orchestrator 是一套 **非交易型 AI 市場觀測系統**，
 Quant-Orchestrator/
 │
 ├─ .github/
-│   └─ workflows/                     # ⏱ GitHub Actions 排程層（只負責「什麼時候跑」）
-│      ├─ guardian.yml                # 風控排程
-│      ├─ genius_tw.yml               # 台股 AI 預測排程
-│      ├─ genius_us.yml               # 美股 AI 預測排程
-│      └─ explorer.yml                # Explorer / 資料更新排程
-│
-├─ orchestrator/                      # 🧠 Orchestrator（狀態中樞，不做業務）
-│   ├─ __init__.py
-│   ├─ state_adapter.py               # 各系統狀態轉接器
-│   ├─ state_machine.py               # 紅 / 黃 / 綠 狀態機
-│   ├─ state_reader.py                # 唯一讀狀態入口
-│   ├─ state_writer.py                # 唯一寫狀態入口
-│   ├─ system_state.json              # workflow 共享狀態（runtime）
-│   └─ state_schema.json              # 狀態結構定義（可選，但很加分）
+│  └─ workflows/                     ← GitHub Actions 排程層
+│     ├─ guardian.yml                ← Guardian 風控（90 分鐘）
+│     ├─ genius_tw.yml               ← 台股 AI（盤後一次）
+│     ├─ genius_us.yml               ← 美股 AI（收盤後一次）
+│     └─ explorer.yml                ← Explorer 池更新
 │
 ├─ repos/
-│   ├─ Quant-Guardian-Ultra/           # 🛡 風控主系統（判定能不能說話）
-│   │   ├─ core/
-│   │   │   ├─ engine.py               # Guardian 主流程
-│   │   │   ├─ notifier.py             # Discord 通知（紅黃綠）
-│   │   │   ├─ risk_policy.py          # L1–L4 風控決策表（AI 可調）
-│   │   │   └─ ...
-│   │   │
-│   │   ├─ modules/                    # Guardian 子模組
-│   │   ├─ data/                       # Guardian 自己的歷史 / cache
-│   │   ├─ entrypoint.py               # workflow 唯一入口
-│   │   └─ requirements.txt
-│   │
-│   └─ Stock-Genius-System/            # 📈 市場分析系統（只分析，不交易）
-│       ├─ data/
-│       │   ├─ tw_history.csv
-│       │   ├─ us_history.csv
-│       │   ├─ explorer_pool_tw.json
-│       │   ├─ explorer_pool_us.json
-│       │   ├─ horizon_policy.json
-│       │   ├─ l3_warning.flag
-│       │   ├─ l4_active.flag
-│       │   ├─ l4_last_end.flag
-│       │   ├─ black_swan_history.csv
-│       │   ├─ news_cache.json
-│       │   ├─ equity_TW.png
-│       │   └─ equity_US.png
-│       │
-│       ├─ scripts/                    # 🔍 AI 分析與 pipeline
-│       │   ├─ ai_tw_post.py            # 台股 AI 預測輸出
-│       │   ├─ ai_us_post.py            # 美股 AI 預測輸出
-│       │   ├─ update_tw_explorer_pool.py
-│       │   ├─ update_us_explorer_pool.py
-│       │   ├─ safe_yfinance.py
-│       │   ├─ news_radar.py
-│       │   ├─ performance_dashboard.py
-│       │   └─ l4_*.py                  # L4 事件處理（靜默 / 保護）
-│       │
-│       ├─ requirements.txt
-│       └─ README.md
+│  ├─ Quant-Guardian-Ultra/           ← Guardian 風控核心
+│  │   │
+│  │   ├─ core/
+│  │   │   ├─ __init__.py
+│  │   │   ├─ engine.py               ← GuardianEngine（evaluate_risk）
+│  │   │   ├─ notifier.py             ← Discord 通知（GREEN / YELLOW / RED）
+│  │   │   └─ risk_policy.py          ← L0–L5 風控邏輯
+│  │   │
+│  │   ├─ modules/                    ← Guardian 掃描模組（news / vix 等）
+│  │   │   └─ …（你原本的）
+│  │   │
+│  │   ├─ data/                       ← Guardian 自用資料
+│  │   │   └─ …
+│  │   │
+│  │   ├─ entrypoint.py               ← guardian.yml 入口
+│  │   └─ requirements.txt
+│  │
+│  └─ Stock-Genius-System/            ← 市場分析系統（不交易）
+│      │
+│      ├─ data/
+│      │   ├─ tw_history.csv
+│      │   ├─ us_history.csv
+│      │   ├─ explorer_pool_tw.json
+│      │   ├─ explorer_pool_us.json
+│      │   ├─ horizon_policy.json
+│      │   ├─ black_swan_history.csv
+│      │   ├─ news_cache.json
+│      │   ├─ l3_warning.flag
+│      │   ├─ l4_active.flag
+│      │   ├─ l4_last_end.flag
+│      │   ├─ equity_TW.png
+│      │   └─ equity_US.png
+│      │
+│      ├─ scripts/                    ← 所有實際執行腳本
+│      │   ├─ guard_check.py           ← ✅ Guardian freeze 檢查（你現在用的）
+│      │   │
+│      │   ├─ ai_tw_post.py            ← 台股 AI 預測（盤後）
+│      │   ├─ ai_us_post.py            ← 美股 AI 預測（收盤後）
+│      │   │
+│      │   ├─ update_tw_explorer_pool.py
+│      │   ├─ update_us_explorer_pool.py
+│      │   │
+│      │   ├─ news_radar.py
+│      │   ├─ performance_dashboard.py
+│      │   ├─ safe_yfinance.py
+│      │   │
+│      │   └─ l4_*.py                  ← L4 / 黑天鵝處理
+│      │
+│      ├─ requirements.txt
+│      ├─ README.md
+│      └─ LICENSE
 │
 ├─ shared/
-│   └─ guardian_state.json             # 🔒 全系統唯一「狀態真相來源」（master store）
+│  └─ guardian_state.json             ← 🔑 全系統唯一風控狀態
 │
-└─ README.md                           # Orchestrator 總說明
+└─ README.md
+
 
 ```
 
