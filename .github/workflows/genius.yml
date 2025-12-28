@@ -2,12 +2,52 @@ name: Stock Genius System
 
 on:
   schedule:
-    # 每天盤後（台灣 18:30 = UTC 10:30）
+    # 每天盤後（台灣時間 18:30 = UTC 10:30）
     - cron: "30 10 * * *"
   workflow_dispatch:
 
 jobs:
+  guardian-gate:
+    name: Guardian Risk Gate
+    runs-on: ubuntu-latest
+    outputs:
+      allow_run: ${{ steps.gate.outputs.allow_run }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read guardian_state.json
+        id: gate
+        run: |
+          STATE_FILE="shared/guardian_state.json"
+
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "[GATE] guardian_state.json 不存在，預設允許執行"
+            echo "allow_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          ACTION=$(python - << 'EOF'
+import json
+with open("shared/guardian_state.json") as f:
+    data = json.load(f)
+print(data.get("action", "ALLOW"))
+EOF
+          )
+
+          echo "[GATE] Guardian action = $ACTION"
+
+          if [ "$ACTION" = "PAUSE" ]; then
+            echo "allow_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "allow_run=true" >> $GITHUB_OUTPUT
+          fi
+
   genius:
+    name: Run Stock Genius AI
+    needs: guardian-gate
+    if: needs.guardian-gate.outputs.allow_run == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -19,78 +59,25 @@ jobs:
         with:
           python-version: "3.10"
 
-      # ============================
-      # Guardian 風控檢查（關鍵）
-      # ============================
-      - name: Check Guardian Risk State
-        id: guardian_check
-        run: |
-          python - << 'EOF'
-          import json, sys, pathlib
-
-          state_file = pathlib.Path("shared/guardian_state.json")
-          if not state_file.exists():
-              print("⚠️ 找不到 guardian_state.json，視為允許執行")
-              sys.exit(0)
-
-          state = json.loads(state_file.read_text(encoding="utf-8"))
-
-          if not state.get("allow_trading", True):
-              print("⛔ Guardian 判定今日停盤")
-              print(f"風險等級：{state.get('risk_level')}")
-              sys.exit(100)
-
-          print("✅ Guardian 允許交易，繼續執行")
-          EOF
-
-      # ============================
-      # 今日停盤 → 通知 + 結束
-      # ============================
-      - name: Notify Trading Halt
-        if: failure() && steps.guardian_check.outcome == 'failure'
-        env:
-          DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
-        run: |
-          python - << 'EOF'
-          import os, json, urllib.request
-
-          webhook = os.getenv("DISCORD_WEBHOOK_GENERAL")
-          if not webhook:
-              print("⚠️ 未設定 Discord Webhook")
-              exit(0)
-
-          state = json.load(open("shared/guardian_state.json", encoding="utf-8"))
-
-          payload = {
-              "content": (
-                  "🛑 **Stock-Genius 今日停盤**\n\n"
-                  f"風險等級：{state.get('risk_level')}\n"
-                  f"動作：{state.get('action')}\n"
-                  "原因：Guardian 風控系統判定\n"
-              )
-          }
-
-          req = urllib.request.Request(
-              webhook,
-              data=json.dumps(payload).encode("utf-8"),
-              headers={"Content-Type": "application/json"}
-          )
-          urllib.request.urlopen(req)
-          EOF
-
-      # ============================
-      # 正常執行 Stock-Genius
-      # ============================
       - name: Install dependencies
-        if: success()
         run: |
           python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run TW AI
-        if: success()
+      - name: Run TW AI Prediction
         run: python repos/Stock-Genius-System/scripts/ai_tw_post.py
 
-      - name: Run US AI
-        if: success()
+      - name: Run US AI Prediction
         run: python repos/Stock-Genius-System/scripts/ai_us_post.py
+
+  paused:
+    name: Genius Paused by Guardian
+    needs: guardian-gate
+    if: needs.guardian-gate.outputs.allow_run == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Paused Notice
+        run: |
+          echo "🛑 Stock-Genius 已被 Guardian 暫停"
+          echo "原因請參考 shared/guardian_state.json"
