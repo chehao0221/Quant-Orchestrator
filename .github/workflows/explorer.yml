@@ -1,43 +1,32 @@
-name: Explorer System (Lv2)
+name: Explorer Pool Update
 
 on:
   workflow_dispatch:
   schedule:
-    # 🧭 Explorer 每日盤後（台股 + 美股已收盤）
-    - cron: "0 8 * * 1-5"   # UTC 08:00 ≈ 台灣 16:00
+    # Explorer 更新（盤後 1 小時）
+    - cron: "0 7 * * 1-5"
+
+permissions:
+  contents: read
 
 jobs:
-  guardian-gate:
-    name: Guardian Gate (Explorer)
+  pause-gate:
     runs-on: ubuntu-latest
-    outputs:
-      level: ${{ steps.gate.outputs.level }}
-      allowed: ${{ steps.gate.outputs.allowed }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Check Guardian State
-        id: gate
+      - name: Guardian Pause Gate (GLOBAL)
         run: |
-          python shared/check_guardian_gate.py --mode explorer
-        env:
-          GUARDIAN_STATE_PATH: shared/guardian_state.json
+          python shared/check_guardian_gate.py
 
-  update-pools:
-    name: Update Explorer Pools
-    needs: guardian-gate
-    if: needs.guardian-gate.outputs.level != 'L4'
+  explorer:
+    needs: pause-gate
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
@@ -52,32 +41,3 @@ jobs:
       - name: Update US Explorer Pool
         run: |
           python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
-
-  explorer-ai:
-    name: Explorer AI Post (Lv2)
-    needs: [guardian-gate, update-pools]
-    if: needs.guardian-gate.outputs.allowed == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install -r repos/Stock-Genius-System/requirements.txt
-
-      - name: Run Explorer TW AI
-        env:
-          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_explorer_post.py
-
-      - name: Run Explorer US AI
-        env:
-          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_us_explorer_post.py
