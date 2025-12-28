@@ -4,15 +4,15 @@ import json
 from pathlib import Path
 
 # ==================================================
-# 基本路徑
+# 路徑（⚠️ 以 GitHub Actions cwd 為準，這是關鍵）
 # ==================================================
-BASE_DIR = Path(__file__).resolve().parent
-ROOT_DIR = BASE_DIR.parent.parent
-SHARED_DIR = ROOT_DIR / "shared"
+REPO_ROOT = Path.cwd()
+BASE_DIR = REPO_ROOT / "repos" / "Quant-Guardian-Ultra"
+SHARED_DIR = REPO_ROOT / "shared"
 STATE_FILE = SHARED_DIR / "guardian_state.json"
 
 # ==================================================
-# 修正 modules 尾巴空白（保險）
+# 修正 modules 尾巴空白
 # ==================================================
 MODULES_DIR = BASE_DIR / "modules"
 if MODULES_DIR.exists():
@@ -27,7 +27,7 @@ if MODULES_DIR.exists():
 # sys.path
 # ==================================================
 sys.path.insert(0, str(BASE_DIR))
-print("[DEBUG] sys.path =", sys.path)
+print("[DEBUG] cwd =", REPO_ROOT)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
@@ -35,7 +35,6 @@ print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
-
 from modules.scanners.vix_scanner import VixScanner
 from modules.scanners.news import NewsScanner
 from modules.guardians.defense import DefenseManager
@@ -53,20 +52,16 @@ def main():
     SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        # ---------- 狀態 ----------
         data_manager = DataManager()
 
-        # ---------- VIX ----------
         print("[PHASE] VIX 恐慌指數掃描")
         vix = VixScanner().scan()
         print(f"[INFO] VIX 指數：{vix}")
 
-        # ---------- News ----------
         print("[PHASE] 新聞掃描 / 去重")
         news = NewsScanner(data_manager).scan()
         print(f"[INFO] 新聞事件數：{len(news)}")
 
-        # ---------- 市場分析（保留功能） ----------
         print("[PHASE] 市場分析（台 / 美）")
         for market in ("TW", "US"):
             try:
@@ -74,43 +69,37 @@ def main():
             except Exception as e:
                 print(f"[WARN] {market} 市場分析失敗：{e}")
 
-        # ---------- Defense ----------
         print("[PHASE] 風控評估")
-        defense = DefenseManager()
-        decision = defense.evaluate(vix, news)
-
+        decision = DefenseManager().evaluate(vix, news)
         print("[RESULT] Guardian 判定結果：", decision)
 
         allow = decision.get("level") in ("L1", "L2")
 
     except Exception as e:
-        # ❗ 任何異常 → 保守停盤
-        print("[ERROR] Guardian 發生例外，進入保守停盤：", e)
+        print("[ERROR] Guardian 發生例外，保守停盤：", e)
         decision = {
             "level": "L4",
             "action": "HALT",
-            "reason": f"Guardian exception: {e}"
+            "reason": str(e)
         }
         allow = False
 
-    # ---------- 寫入 shared 狀態（一定會執行） ----------
     state = {
         "allow_trading": allow,
         "risk_level": decision.get("level"),
         "action": decision.get("action"),
-        "reason": decision.get("reason", ""),
+        "reason": decision.get("reason", "")
     }
 
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-    print("[GUARDIAN] 已寫入 guardian_state.json")
+    print(f"[GUARDIAN] 已寫入 {STATE_FILE}")
 
-    # ---------- 通知 ----------
     if not allow:
         notifier.trading_halt(
             level=state["risk_level"],
-            reason="Guardian 判定風險偏高，今日停盤",
+            reason="Guardian 判定風險偏高，今日停盤"
         )
 
     print("[GUARDIAN] 本次盤後風控流程完成")
