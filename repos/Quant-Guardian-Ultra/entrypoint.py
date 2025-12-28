@@ -1,32 +1,32 @@
 import os
 import sys
-import types
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODULES_DIR = os.path.join(BASE_DIR, "modules")
 
-# 保證 Guardian repo root 在 sys.path
+# === 🔥 自動修復尾端空白資料夾 ===
+if os.path.isdir(MODULES_DIR):
+    for name in os.listdir(MODULES_DIR):
+        stripped = name.rstrip()
+        if name != stripped:
+            src = os.path.join(MODULES_DIR, name)
+            dst = os.path.join(MODULES_DIR, stripped)
+            if not os.path.exists(dst):
+                print(f"[FIX] rename '{name}' -> '{stripped}'")
+                os.rename(src, dst)
+
+# === sys.path 保證 ===
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# === 🔥 強制註冊 modules 為 Python module（不依賴 __init__.py） ===
-MODULES_DIR = os.path.join(BASE_DIR, "modules")
-
-if os.path.isdir(MODULES_DIR):
-    modules_pkg = types.ModuleType("modules")
-    modules_pkg.__path__ = [MODULES_DIR]
-    sys.modules["modules"] = modules_pkg
-
-# === Debug ===
 print("[DEBUG] sys.path =", sys.path)
-print("[DEBUG] modules dir exists =", os.path.isdir(MODULES_DIR))
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
-# === Core ===
+# === imports（現在一定對） ===
 from core.engine import GuardianEngine
 from core.data_manager import DataManager
 from core.notifier import Notifier
 
-# === Modules（現在 100% 不會再炸） ===
 from modules.scanners.news import NewsScanner
 from modules.scanners.vix_scanner import VIXScanner
 from modules.guardians.defense import DefenseGuardian
