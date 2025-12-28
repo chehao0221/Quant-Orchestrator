@@ -10,7 +10,6 @@ Guardian v2 Entrypoint (Final)
 
 from core.engine import GuardianEngine
 from core.notifier import Notifier
-from datetime import datetime
 import random
 import os
 
@@ -38,14 +37,10 @@ def get_risk_signals():
     - 黑天鵝事件模型
     """
 
-    vix = random.uniform(15, 40)
-    sentiment = random.uniform(-1.0, 1.0)
-    event_score = random.uniform(0.0, 1.0)
-
     return {
-        "vix": round(vix, 2),
-        "sentiment": round(sentiment, 3),
-        "event_score": round(event_score, 3),
+        "vix": round(random.uniform(15, 40), 2),
+        "sentiment": round(random.uniform(-1.0, 1.0), 3),
+        "event_score": round(random.uniform(0.0, 1.0), 3),
     }
 
 
@@ -78,15 +73,10 @@ def main():
     )
 
     # --------------------------------------------------
-    # Notify（只在等級變化時）
+    # Notify（Notifier 內部會判斷是否需要送）
     # --------------------------------------------------
 
-    if payload.get("level_changed"):
-        notifier.notify(
-            level=payload["level"],
-            decision=payload,
-            changed=True,
-        )
+    notifier.notify(payload)
 
 
 if __name__ == "__main__":
