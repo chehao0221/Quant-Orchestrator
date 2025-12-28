@@ -1,21 +1,32 @@
 import os
 import sys
+import types
 
-# === 強制鎖定 Guardian Repo Root（最重要） ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 保證 Guardian repo root 在 sys.path
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Debug 保險（可留著，不影響）
+# === 🔥 強制註冊 modules 為 Python module（不依賴 __init__.py） ===
+MODULES_DIR = os.path.join(BASE_DIR, "modules")
+
+if os.path.isdir(MODULES_DIR):
+    modules_pkg = types.ModuleType("modules")
+    modules_pkg.__path__ = [MODULES_DIR]
+    sys.modules["modules"] = modules_pkg
+
+# === Debug ===
 print("[DEBUG] sys.path =", sys.path)
+print("[DEBUG] modules dir exists =", os.path.isdir(MODULES_DIR))
+print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # === Core ===
 from core.engine import GuardianEngine
 from core.data_manager import DataManager
 from core.notifier import Notifier
 
-# === Modules ===
+# === Modules（現在 100% 不會再炸） ===
 from modules.scanners.news import NewsScanner
 from modules.scanners.vix_scanner import VIXScanner
 from modules.guardians.defense import DefenseGuardian
@@ -23,12 +34,9 @@ from modules.analysts.market_analyst import MarketAnalyst
 
 
 def main():
-    data_manager = DataManager()
-    notifier = Notifier()
-
     engine = GuardianEngine(
-        data_manager=data_manager,
-        notifier=notifier,
+        data_manager=DataManager(),
+        notifier=Notifier(),
     )
 
     engine.register_scanner(NewsScanner())
