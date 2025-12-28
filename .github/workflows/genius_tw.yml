@@ -1,45 +1,29 @@
-name: Stock Genius TW System
+name: Stock Genius TW
 
 on:
   workflow_dispatch:
   schedule:
-    # 🇹🇼 台股盤後 1 小時
-    # 台股收盤約 13:30（UTC+8）
-    # 14:30 台灣時間 = 06:30 UTC
-    - cron: "30 6 * * 1-5"
+    # 台股盤後 1 小時（UTC 06:00 ≈ 14:00 TW）
+    - cron: "0 6 * * 1-5"
+
+permissions:
+  contents: read
 
 jobs:
-  guardian-gate:
-    name: Guardian Pause Gate (TW)
+  pause-gate:
     runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.gate.outputs.allowed }}
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Guardian Pause Check
-        id: gate
+      - uses: actions/checkout@v4
+      - name: Guardian Pause Gate (TW)
         run: |
-          python shared/check_guardian_gate.py
-        env:
-          GUARDIAN_STATE_PATH: shared/guardian_state.json
+          python shared/check_guardian_gate.py TW
 
   genius-tw:
-    name: Run Stock Genius TW
-    needs: guardian-gate
-    if: needs.guardian-gate.outputs.allowed == 'true'
+    needs: pause-gate
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -48,10 +32,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run Stock Genius TW AI
+      - name: Run TW Genius
         env:
           DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
         run: |
