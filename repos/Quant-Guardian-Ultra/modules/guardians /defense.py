@@ -1,53 +1,25 @@
+import yfinance as yf
+
 class DefenseManager:
-    """
-    Guardian 防禦決策器
-    - 綜合 VIX 與新聞事件
-    - 輸出風險等級 L1–L4 與行動
-    """
-
-    def evaluate(self, vix: float, news_events: list) -> dict:
+    def evaluate(self):
         """
-        參數：
-          vix: VIX 指數
-          news_events: 新聞事件列表
-
-        回傳：
-          {
-            "level": "L1" | "L2" | "L3" | "L4",
-            "action": "NONE" | "REDUCE" | "PAUSE"
-          }
+        根據避險資產表現，回傳建議風險等級
         """
+        try:
+            assets = ["GLD", "BIL", "VIXY"]
+            data = yf.download(assets, period="5d", progress=False)["Close"]
 
-        level = "L1"
-        action = "NONE"
+            if data.empty:
+                return 1
 
-        # -------------------------------
-        # VIX 判斷
-        # -------------------------------
-        if vix is None:
-            level = "L1"
-        elif vix >= 40:
-            level = "L4"
-            action = "PAUSE"
-        elif vix >= 30:
-            level = "L3"
-            action = "REDUCE"
-        elif vix >= 20:
-            level = "L2"
-            action = "CAUTION"
+            rets = (data.iloc[-1] / data.iloc[0]) - 1
 
-        # -------------------------------
-        # 新聞事件加權
-        # -------------------------------
-        if news_events:
-            # 有新新聞 → 至少提高一級
-            if level == "L1":
-                level = "L2"
-            elif level == "L2":
-                level = "L3"
-                action = "REDUCE"
+            # 避險資產大漲 → 市場異常
+            if rets.get("VIXY", 0) > 0.15:
+                return 4
+            if rets.mean() > 0.05:
+                return 3
 
-        return {
-            "level": level,
-            "action": action,
-        }
+            return 1
+        except:
+            return 1
