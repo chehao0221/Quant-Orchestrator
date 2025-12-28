@@ -1,35 +1,29 @@
-name: Explorer Update
+name: Explorer Pool Update
 
 on:
   schedule:
-    # 台股 Explorer（盤後）
-    - cron: "45 5 * * 1-5"
-
-    # 美股 Explorer（夏令）
-    - cron: "30 21 * * 1-5"
-
-    # 美股 Explorer（冬令）
-    - cron: "30 22 * * 1-5"
-
+    # 收盤後更新 Explorer（台股 + 美股）
+    - cron: '20 6 * * 1-5'
   workflow_dispatch:
 
 jobs:
   explorer:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install -r repos/Quant-Guardian-Ultra/requirements.txt
+        working-directory: repos/Stock-Genius-System
+        run: pip install -r requirements.txt
 
-      - name: Update Explorer Pools
-        run: |
-          python repos/Quant-Guardian-Ultra/modules/update_tw_explorer_pool.py
-          python repos/Quant-Guardian-Ultra/modules/update_us_explorer_pool.py
+      - name: Update TW Explorer Pool
+        working-directory: repos/Stock-Genius-System
+        run: python scripts/update_tw_explorer_pool.py
+
+      - name: Update US Explorer Pool
+        working-directory: repos/Stock-Genius-System
+        run: python scripts/update_us_explorer_pool.py
