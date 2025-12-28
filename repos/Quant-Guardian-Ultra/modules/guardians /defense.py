@@ -1,25 +1,53 @@
 class DefenseManager:
-    def __init__(self):
-        self.level = "NORMAL"
+    """
+    Guardian 防禦決策器
+    - 綜合 VIX 與新聞事件
+    - 輸出風險等級 L1–L4 與行動
+    """
 
-    def evaluate(self, vix_value=None):
+    def evaluate(self, vix: float, news_events: list) -> dict:
         """
-        vix_value: float | None
+        參數：
+          vix: VIX 指數
+          news_events: 新聞事件列表
+
+        回傳：
+          {
+            "level": "L1" | "L2" | "L3" | "L4",
+            "action": "NONE" | "REDUCE" | "PAUSE"
+          }
         """
-        if vix_value is None:
-            return {"level": self.level, "action": "NO_DATA"}
 
-        if vix_value >= 40:
-            self.level = "L4"
-            return {"level": "L4", "action": "FULL_STOP"}
+        level = "L1"
+        action = "NONE"
 
-        if vix_value >= 30:
-            self.level = "L3"
-            return {"level": "L3", "action": "REDUCE"}
+        # -------------------------------
+        # VIX 判斷
+        # -------------------------------
+        if vix is None:
+            level = "L1"
+        elif vix >= 40:
+            level = "L4"
+            action = "PAUSE"
+        elif vix >= 30:
+            level = "L3"
+            action = "REDUCE"
+        elif vix >= 20:
+            level = "L2"
+            action = "CAUTION"
 
-        if vix_value >= 20:
-            self.level = "L2"
-            return {"level": "L2", "action": "CAUTION"}
+        # -------------------------------
+        # 新聞事件加權
+        # -------------------------------
+        if news_events:
+            # 有新新聞 → 至少提高一級
+            if level == "L1":
+                level = "L2"
+            elif level == "L2":
+                level = "L3"
+                action = "REDUCE"
 
-        self.level = "L1"
-        return {"level": "L1", "action": "NORMAL"}
+        return {
+            "level": level,
+            "action": action,
+        }
