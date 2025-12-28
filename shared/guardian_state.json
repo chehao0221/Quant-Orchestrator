@@ -1,0 +1,10 @@
+{
+  "risk_level": 1,
+  "risk_color": "GREEN",
+  "risk_label": "STABLE",
+  "last_transition": "2025-01-01T00:00:00Z",
+  "l4_last_check": null,
+  "l4_active": false,
+  "source": "Guardian",
+  "note": "Initial stable state"
+}
