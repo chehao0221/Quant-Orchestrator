@@ -1,154 +1,104 @@
 import os
 import sys
+import json
 from pathlib import Path
-from datetime import datetime
 
-# =====================================================
-# Phase 0 — 修正 modules 底下「尾端空白資料夾」
-# =====================================================
-
+# ==================================================
+# 🔥 修正 modules 下尾巴有空白的資料夾（只做一次）
+# ==================================================
 BASE_DIR = Path(__file__).resolve().parent
 MODULES_DIR = BASE_DIR / "modules"
 
 if MODULES_DIR.exists():
-    for item in MODULES_DIR.iterdir():
-        if item.is_dir() and item.name.endswith(" "):
-            fixed = item.with_name(item.name.rstrip())
+    for p in MODULES_DIR.iterdir():
+        if p.is_dir() and p.name.endswith(" "):
+            fixed = MODULES_DIR / p.name.rstrip()
             if not fixed.exists():
-                item.rename(fixed)
-                print(f"[FIX] rename '{item.name}' -> '{fixed.name}'")
+                print(f"[FIX] rename '{p.name}' -> '{fixed.name}'")
+                p.rename(fixed)
 
-# =====================================================
-# Phase 1 — sys.path 設定
-# =====================================================
-
+# ==================================================
+# 🔧 sys.path（只放 repo root）
+# ==================================================
 sys.path.insert(0, str(BASE_DIR))
 
 print("[DEBUG] sys.path =", sys.path)
-print(
-    "[DEBUG] modules contents =",
-    [p.name for p in (BASE_DIR / "modules").iterdir() if p.is_dir()],
-)
+print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
-# =====================================================
-# Phase 2 — Import（修完後一定可成功）
-# =====================================================
-
-from core.data_manager import DataManager
-from core.notifier import Notifier
-
+# ==================================================
+# ✅ imports（完全對齊你現有檔案）
+# ==================================================
+from core.notifier import DiscordNotifier
 from modules.scanners.vix_scanner import VixScanner
 from modules.scanners.news import NewsScanner
-
-from modules.analysts.market_analyst import MarketAnalyst
 from modules.guardians.defense import DefenseManager
+from modules.analysts.market_analyst import MarketAnalyst
 
-
-# =====================================================
-# Phase 3 — Guardian 主流程（盤後一次性）
-# =====================================================
-
+# ==================================================
+# 🧠 Guardian 主流程（不假設 engine）
+# ==================================================
 def main():
     print("[GUARDIAN] 啟動 Guardian Ultra 盤後風控流程")
 
-    # --- 初始化核心 ---
-    data_manager = DataManager()
-    notifier = Notifier()
+    notifier = DiscordNotifier()
+    notifier.heartbeat(mode="風險監控待命")
 
-    # --- 系統心跳 ---
-    try:
-        notifier.send(
-            f"🛡 Guardian 系統心跳回報\n\n"
-            f"系統狀態：正常監控中\n"
-            f"檢查時間：{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
-            f"模式：盤後風控檢查",
-            channel="general",
-        )
-    except Exception as e:
-        print(f"[WARN] Discord Webhook 未設定（general）")
-
-    # =================================================
-    # Phase 3.1 — VIX Scanner
-    # =================================================
+    # ---------- Phase 1：VIX ----------
     print("[PHASE] VIX 恐慌指數掃描")
     vix_scanner = VixScanner()
     vix_value = vix_scanner.scan()
     print(f"[INFO] VIX 指數：{vix_value}")
 
-    # =================================================
-    # Phase 3.2 — News Scanner（含去重）
-    # =================================================
+    # ---------- Phase 2：新聞 ----------
     print("[PHASE] 新聞掃描 / 去重")
-    news_scanner = NewsScanner(data_manager)
+    news_scanner = NewsScanner()
     news_events = news_scanner.scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
-    # =================================================
-    # Phase 3.3 — 市場分析（台 / 美）
-    # =================================================
+    # ---------- Phase 3：市場分析 ----------
     print("[PHASE] 市場分析（台 / 美）")
-    analyst = MarketAnalyst()
-    market_report = analyst.analyze()
 
-    if market_report.get("tw"):
-        notifier.send(
-            market_report["tw"],
-            channel="tw",
-        )
+    tw_analyst = MarketAnalyst(market="TW")
+    us_analyst = MarketAnalyst(market="US")
 
-    if market_report.get("us"):
-        notifier.send(
-            market_report["us"],
-            channel="us",
-        )
+    tw_result = tw_analyst.analyze()
+    us_result = us_analyst.analyze()
 
-    # =================================================
-    # Phase 3.4 — Defense Guardian（L1–L4）
-    # =================================================
-    print("[PHASE] 風險防禦評估")
+    # ---------- Phase 4：風控判斷 ----------
+    print("[PHASE] 風控評估")
+
     defense = DefenseManager()
-
-    defense_result = defense.evaluate(
+    decision = defense.evaluate(
         vix=vix_value,
-        news_events=news_events,
+        news=news_events,
+        tw=tw_result,
+        us=us_result,
     )
 
-    print("[RESULT] Defense 評估結果：", defense_result)
+    print("[RESULT] Guardian 判定結果：", decision)
 
-    level = defense_result.get("level", "L1")
-    action = defense_result.get("action", "NONE")
+    # ---------- Phase 5：寫入共享狀態 ----------
+    shared_state = {
+        "allow_trading": decision.get("level") in ("L1", "L2"),
+        "risk_level": decision.get("level"),
+        "action": decision.get("action"),
+    }
 
-    # --- 更新 state.json ---
-    data_manager.update_risk_state(
-        level=level,
-        action=action,
-        vix=vix_value,
-    )
+    shared_path = BASE_DIR.parent.parent / "shared" / "guardian_state.json"
+    shared_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # --- 依等級通知 ---
-    if level in ["L3", "L4"]:
-        notifier.send(
-            f"🚨 黑天鵝風險警示\n\n"
-            f"等級：{level}\n"
-            f"動作：{action}\n"
-            f"VIX：{vix_value}",
-            channel="black_swan",
-        )
-    else:
-        notifier.send(
-            f"🛡 風控完成回報\n\n"
-            f"等級：{level}\n"
-            f"動作：{action}\n"
-            f"VIX：{vix_value}",
-            channel="general",
+    with open(shared_path, "w", encoding="utf-8") as f:
+        json.dump(shared_state, f, ensure_ascii=False, indent=2)
+
+    # ---------- Phase 6：通知 ----------
+    if not shared_state["allow_trading"]:
+        notifier.trading_halt(
+            level=shared_state["risk_level"],
+            reason="市場風險過高（VIX / 新聞 / 市場分析）",
         )
 
     print("[GUARDIAN] 本次盤後風控流程完成")
 
-
-# =====================================================
-# Entrypoint
-# =====================================================
 
 if __name__ == "__main__":
     main()
