@@ -1,26 +1,77 @@
-{
-  "timestamp": "2025-12-28T10:15:00Z",
+import json
+import os
+import requests
+from datetime import datetime, timezone, timedelta
 
-  "global": {
-    "level": "L3",
-    "color": "YELLOW",
-    "action": "REDUCE",
-    "pause_all": false
-  },
+# ===== 基本設定 =====
+STATE_FILE = "shared/guardian_state.json"
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-  "markets": {
-    "TW": {
-      "paused": false,
-      "reason": "L3 風險升高，僅提醒",
-      "color": "YELLOW"
-    },
-    "US": {
-      "paused": false,
-      "reason": "L3 風險升高，僅提醒",
-      "color": "YELLOW"
-    }
-  },
+if not DISCORD_WEBHOOK_URL:
+    raise RuntimeError("DISCORD_WEBHOOK_URL not set")
 
-  "notes": "VIX 升高 + 一般新聞事件",
-  "source": "Quant-Guardian-Ultra"
+# ===== 顏色定義（只允許 綠 / 黃 / 紅）=====
+COLOR_MAP = {
+    "L2": 0x2ECC71,  # 綠
+    "L3": 0xF1C40F,  # 黃
+    "L4": 0xE74C3C,  # 紅
 }
+
+TITLE_MAP = {
+    "L2": "🟢 Guardian Status: NORMAL",
+    "L3": "🟡 Guardian Status: DEGRADED",
+    "L4": "🔴 Guardian Status: FULL STOP",
+}
+
+DESC_MAP = {
+    "L2": "All systems operating normally.\nStock-Genius & Explorer running.",
+    "L3": "Risk detected. Systems continue running **with degraded visibility**.",
+    "L4": "Critical risk confirmed.\n**ALL TRADING & EXECUTION HALTED.**",
+}
+
+# ===== 讀取 Guardian State =====
+with open(STATE_FILE, "r", encoding="utf-8") as f:
+    state = json.load(f)
+
+level = state.get("final_level", "L3")
+reason = state.get("reason", "N/A")
+timestamp = state.get("timestamp")
+
+# 台灣時間顯示
+tz_tw = timezone(timedelta(hours=8))
+now_tw = datetime.now(tz_tw).strftime("%Y-%m-%d %H:%M:%S (TW)")
+
+# ===== Discord Embed =====
+embed = {
+    "title": TITLE_MAP.get(level, "Guardian Status"),
+    "description": DESC_MAP.get(level, ""),
+    "color": COLOR_MAP.get(level, COLOR_MAP["L3"]),
+    "fields": [
+        {
+            "name": "Guardian Level",
+            "value": level,
+            "inline": True
+        },
+        {
+            "name": "Decision Reason",
+            "value": reason,
+            "inline": False
+        },
+        {
+            "name": "Decision Time",
+            "value": timestamp or now_tw,
+            "inline": False
+        }
+    ],
+    "footer": {
+        "text": "Quant-Orchestrator • Guardian is the only authority"
+    }
+}
+
+payload = {
+    "username": "Guardian",
+    "embeds": [embed]
+}
+
+resp = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+resp.raise_for_status()
