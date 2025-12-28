@@ -76,20 +76,26 @@ def main():
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
     # -------------------------------
-    # 市場分析（依你原本設計：單市場）
+    # 市場分析（⚠️ 必須防炸）
     # -------------------------------
     print("[PHASE] 市場分析（台 / 美）")
 
-    tw_report = MarketAnalyst(market="tw").analyze()
-    us_report = MarketAnalyst(market="us").analyze()
+    try:
+        tw_report = MarketAnalyst(market="tw").analyze()
+        if tw_report:
+            notifier.send(tw_report, channel="tw")
+    except Exception as e:
+        print(f"[WARN] 台股分析失敗：{e}")
 
-    if tw_report:
-        notifier.send(tw_report, channel="tw")
-    if us_report:
-        notifier.send(us_report, channel="us")
+    try:
+        us_report = MarketAnalyst(market="us").analyze()
+        if us_report:
+            notifier.send(us_report, channel="us")
+    except Exception as e:
+        print(f"[WARN] 美股分析失敗：{e}")
 
     # -------------------------------
-    # Defense Guardian
+    # Defense Guardian（核心不可中斷）
     # -------------------------------
     print("[PHASE] 風險防禦評估")
     defense = DefenseManager()
@@ -101,7 +107,7 @@ def main():
     print("[RESULT]", result)
 
     # -------------------------------
-    # 寫入 Guardian → 系統共享狀態
+    # Guardian → shared 狀態（交易開關）
     # -------------------------------
     shared_dir = BASE_DIR.parents[1] / "shared"
     shared_dir.mkdir(exist_ok=True)
