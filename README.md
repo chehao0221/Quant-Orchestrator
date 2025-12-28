@@ -164,8 +164,8 @@ Quant-Orchestrator/
 | 用途 | Secret 名稱 |
 |----|----|----|
 | 一般 / 系統 | DISCORD_WEBHOOK_GENERAL |
-| 黑天鵝 | DISCORD_WEBHOOK_BLACK_SWAN | 
-| 美股 | DISCORD_WEBHOOK_US | 
+| 黑天鵝 | DISCORD_WEBHOOK_BLACK_SWAN |
+| 美股 | DISCORD_WEBHOOK_US |
 | 台股 | DISCORD_WEBHOOK_TW |
 ```
 > Quant-Orchestrator 只負責「轉交 Secrets」，不產生任何訊息內容。
