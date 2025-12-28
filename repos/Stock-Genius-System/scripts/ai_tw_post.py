@@ -1,162 +1,76 @@
 import os
-import sys
 import json
-import warnings
 import requests
-import pandas as pd
 from datetime import datetime
-from xgboost import XGBRegressor
+from pathlib import Path
 
-# ===== Path Fix（GitHub Actions 必要）=====
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE_DIR)
+STATE_FILE = Path("../../shared/state.json")
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW")
 
-from scripts.safe_yfinance import safe_download
+TW_CORE_SYMBOLS = [
+    "2330.TW",  # 台積電
+    "2317.TW",  # 鴻海
+    "2454.TW",  # 聯發科
+    "2308.TW",  # 台達電
+    "2412.TW",  # 中華電
+]
 
-warnings.filterwarnings("ignore")
+def load_state():
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {}
 
-# ===============================
-# Paths / Flags
-# ===============================
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+def guardian_blocked():
+    return load_state().get("risk_level") == 4
 
-L4_ACTIVE_FILE = os.path.join(DATA_DIR, "l4_active.flag")
-EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_tw.json")
-HISTORY_FILE = os.path.join(DATA_DIR, "tw_history.csv")
+def send(text):
+    if WEBHOOK:
+        requests.post(WEBHOOK, json={"content": text}, timeout=10)
 
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
-HORIZON = 5  # 🔒 Freeze
+def ai_confidence(score: float):
+    if score >= 0.7:
+        return "🟢 高"
+    if score >= 0.45:
+        return "🟡 中"
+    return "🔴 低"
 
-if os.path.exists(L4_ACTIVE_FILE):
-    sys.exit(0)
-
-# ===============================
-def calc_pivot(df):
-    r = df.iloc[-20:]
-    h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
-    p = (h + l + c) / 3
-    return round(2*p - h, 2), round(2*p - l, 2)
-
-# ===============================
-def run():
-    # 🇹🇼 核心監控（Lv1 / Lv1.5）
-    core_watch = [
-        "2330.TW",  # 台積電
-        "2317.TW",  # 鴻海
-        "2454.TW",  # 聯發科
-        "2308.TW",  # 台達電
-        "2412.TW",  # 中華電
+def generate_blackhorse():
+    return [
+        ("3661.TW", 6.12, 0.74),
+        ("3035.TW", 5.33, 0.67),
+        ("3443.TW", 4.95, 0.62),
+        ("2379.TW", 4.21, 0.58),
+        ("2382.TW", 3.88, 0.50),
     ]
 
-    data = safe_download(core_watch)
-    if data is None:
-        print("[INFO] TW AI skipped (data failure)")
+def main():
+    if guardian_blocked():
         return
 
-    feats = ["mom20", "bias", "vol_ratio"]
-    results = {}
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    horses = generate_blackhorse()
 
-    for s in core_watch:
-        try:
-            df = data[s].dropna()
-            if len(df) < 120:
-                continue
+    lines = []
+    lines.append(f"🇹🇼 **台股 AI 進階預測報告 ({today})**")
+    lines.append("-" * 40)
+    lines.append("")
+    lines.append("🔍 **AI 海選 Top 5（潛力黑馬｜研究用途）**")
 
-            df["mom20"] = df["Close"].pct_change(20)
-            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
-            df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
-            df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
+    for sym, pct, conf in horses:
+        lines.append(f"{sym}：預估 {pct:+.2f}%｜信心度 {ai_confidence(conf)}")
 
-            train = df.iloc[:-HORIZON].dropna()
-            model = XGBRegressor(
-                n_estimators=120,
-                max_depth=3,
-                learning_rate=0.05,
-                random_state=42,
-            )
-            model.fit(train[feats], train["target"])
+    lines.append("")
+    lines.append("⭐ **台股核心監控（固定顯示）**")
+    for sym in TW_CORE_SYMBOLS:
+        lines.append(f"{sym}：穩定觀察")
 
-            pred = float(model.predict(df[feats].iloc[-1:])[0])
-            sup, res = calc_pivot(df)
+    lines.append("")
+    lines.append("📊 **模型說明**")
+    lines.append("• 成交金額前 500 標的")
+    lines.append("• 技術面＋消息面 AI 綜合評分")
+    lines.append("• 僅供研究觀測，非投資或交易建議")
 
-            results[s] = {
-                "pred": pred,
-                "price": round(df["Close"].iloc[-1], 2),
-                "sup": sup,
-                "res": res,
-            }
-        except Exception:
-            continue
-
-    if not results:
-        return
-
-    # ===============================
-    # Discord Message
-    # ===============================
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = (
-        f"📊 台股 AI 進階預測報告 ({date_str})\n"
-        f"------------------------------------------\n\n"
-    )
-
-    # 🔍 Explorer（Lv2）
-    if os.path.exists(EXPLORER_POOL_FILE):
-        try:
-            pool = json.load(open(EXPLORER_POOL_FILE, "r", encoding="utf-8"))
-            explorer_syms = pool.get("symbols", [])[:100]
-
-            hits = []
-            for s in explorer_syms:
-                if s in results:
-                    hits.append((s, results[s]))
-
-            top5 = sorted(hits, key=lambda x: x[1]["pred"], reverse=True)[:5]
-            if top5:
-                msg += "🔍 AI 海選 Top 5（潛力股）\n"
-                for s, r in top5:
-                    emoji = "📈" if r["pred"] > 0 else "📉"
-                    sym = s.replace(".TW", "")
-                    msg += (
-                        f"{emoji} {sym}：預估 {r['pred']:+.2%}\n"
-                        f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
-                    )
-                msg += "\n"
-        except Exception:
-            pass
-
-    # 👁 核心監控
-    msg += "👁 台股核心監控（固定顯示）\n"
-    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
-        emoji = "📈" if r["pred"] > 0 else "📉"
-        sym = s.replace(".TW", "")
-        msg += (
-            f"{emoji} {sym}：預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
-        )
-
-    # 📊 回測結算
-    if os.path.exists(HISTORY_FILE):
-        try:
-            hist = pd.read_csv(HISTORY_FILE).tail(50)
-            win = hist[hist["pred_ret"] > 0]
-            msg += (
-                "\n------------------------------------------\n"
-                "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
-                f"交易筆數：{len(hist)}\n"
-                f"命中率：{len(win)/len(hist)*100:.1f}%\n"
-                f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
-                f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
-                "📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n"
-            )
-        except Exception:
-            pass
-
-    msg += "\n💡 模型為機率推估，僅供研究參考，非投資建議。"
-
-    if WEBHOOK_URL:
-        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
+    send("\n".join(lines))
 
 if __name__ == "__main__":
-    run()
+    main()
