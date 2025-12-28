@@ -2,7 +2,8 @@ name: Stock Genius System
 
 on:
   schedule:
-    - cron: '30 13 * * *'
+    # 台股 / 美股 預測（例：每天盤後）
+    - cron: "30 10 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,22 +11,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
 
-      - name: Install Genius dependencies
+      # ============================================
+      # 🔐 Guardian 風控總開關（最重要）
+      # ============================================
+      - name: Check Guardian Risk State
+        id: guardian
         run: |
+          echo "🔍 檢查 Guardian 風控狀態"
+
+          STATE_FILE="shared/guardian_state.json"
+
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "❌ Guardian 狀態不存在，預設禁止交易"
+            echo "ALLOW_TRADING=false" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          ALLOW=$(python - << 'EOF'
+          import json
+          with open("shared/guardian_state.json", "r", encoding="utf-8") as f:
+              state = json.load(f)
+          print(str(state.get("allow_trading", False)).lower())
+          EOF
+          )
+
+          echo "Guardian allow_trading = $ALLOW"
+          echo "ALLOW_TRADING=$ALLOW" >> $GITHUB_ENV
+
+      # ============================================
+      # 🚫 若 Guardian 暫停 → 直接結束
+      # ============================================
+      - name: Trading Paused by Guardian
+        if: env.ALLOW_TRADING != 'true'
+        run: |
+          echo "🛑 Guardian 已暫停交易"
+          echo "📛 本次 Stock-Genius 不執行任何預測"
+          exit 0
+
+      # ============================================
+      # ✅ 允許交易 → 正常跑 Stock-Genius
+      # ============================================
+      - name: Install Stock Genius dependencies
+        run: |
+          python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run TW AI
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_post.py
+      # 🇹🇼 台股 AI
+      - name: Run TW AI Prediction
+        run: python repos/Stock-Genius-System/scripts/ai_tw_post.py
 
-      - name: Run US AI
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_us_post.py
+      # 🇺🇸 美股 AI
+      - name: Run US AI Prediction
+        run: python repos/Stock-Genius-System/scripts/ai_us_post.py
