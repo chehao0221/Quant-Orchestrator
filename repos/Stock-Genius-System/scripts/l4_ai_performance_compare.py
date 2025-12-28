@@ -1,3 +1,9 @@
+# ===== Guardian System Check =====
+from guard_check import check_guardian
+check_guardian()
+# =================================
+
+
 import os, sys, datetime, requests
 import pandas as pd
 
