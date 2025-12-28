@@ -2,7 +2,7 @@ name: Stock Genius System
 
 on:
   schedule:
-    # 台股 / 美股 預測（例：每天盤後）
+    # 每天盤後（台灣 18:30 = UTC 10:30）
     - cron: "30 10 * * *"
   workflow_dispatch:
 
@@ -19,55 +19,78 @@ jobs:
         with:
           python-version: "3.10"
 
-      # ============================================
-      # 🔐 Guardian 風控總開關（最重要）
-      # ============================================
+      # ============================
+      # Guardian 風控檢查（關鍵）
+      # ============================
       - name: Check Guardian Risk State
-        id: guardian
+        id: guardian_check
         run: |
-          echo "🔍 檢查 Guardian 風控狀態"
+          python - << 'EOF'
+          import json, sys, pathlib
 
-          STATE_FILE="shared/guardian_state.json"
+          state_file = pathlib.Path("shared/guardian_state.json")
+          if not state_file.exists():
+              print("⚠️ 找不到 guardian_state.json，視為允許執行")
+              sys.exit(0)
 
-          if [ ! -f "$STATE_FILE" ]; then
-            echo "❌ Guardian 狀態不存在，預設禁止交易"
-            echo "ALLOW_TRADING=false" >> $GITHUB_ENV
-            exit 0
-          fi
+          state = json.loads(state_file.read_text(encoding="utf-8"))
 
-          ALLOW=$(python - << 'EOF'
-          import json
-          with open("shared/guardian_state.json", "r", encoding="utf-8") as f:
-              state = json.load(f)
-          print(str(state.get("allow_trading", False)).lower())
+          if not state.get("allow_trading", True):
+              print("⛔ Guardian 判定今日停盤")
+              print(f"風險等級：{state.get('risk_level')}")
+              sys.exit(100)
+
+          print("✅ Guardian 允許交易，繼續執行")
           EOF
-          )
 
-          echo "Guardian allow_trading = $ALLOW"
-          echo "ALLOW_TRADING=$ALLOW" >> $GITHUB_ENV
-
-      # ============================================
-      # 🚫 若 Guardian 暫停 → 直接結束
-      # ============================================
-      - name: Trading Paused by Guardian
-        if: env.ALLOW_TRADING != 'true'
+      # ============================
+      # 今日停盤 → 通知 + 結束
+      # ============================
+      - name: Notify Trading Halt
+        if: failure() && steps.guardian_check.outcome == 'failure'
+        env:
+          DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
         run: |
-          echo "🛑 Guardian 已暫停交易"
-          echo "📛 本次 Stock-Genius 不執行任何預測"
-          exit 0
+          python - << 'EOF'
+          import os, json, urllib.request
 
-      # ============================================
-      # ✅ 允許交易 → 正常跑 Stock-Genius
-      # ============================================
-      - name: Install Stock Genius dependencies
+          webhook = os.getenv("DISCORD_WEBHOOK_GENERAL")
+          if not webhook:
+              print("⚠️ 未設定 Discord Webhook")
+              exit(0)
+
+          state = json.load(open("shared/guardian_state.json", encoding="utf-8"))
+
+          payload = {
+              "content": (
+                  "🛑 **Stock-Genius 今日停盤**\n\n"
+                  f"風險等級：{state.get('risk_level')}\n"
+                  f"動作：{state.get('action')}\n"
+                  "原因：Guardian 風控系統判定\n"
+              )
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"}
+          )
+          urllib.request.urlopen(req)
+          EOF
+
+      # ============================
+      # 正常執行 Stock-Genius
+      # ============================
+      - name: Install dependencies
+        if: success()
         run: |
           python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      # 🇹🇼 台股 AI
-      - name: Run TW AI Prediction
+      - name: Run TW AI
+        if: success()
         run: python repos/Stock-Genius-System/scripts/ai_tw_post.py
 
-      # 🇺🇸 美股 AI
-      - name: Run US AI Prediction
+      - name: Run US AI
+        if: success()
         run: python repos/Stock-Genius-System/scripts/ai_us_post.py
