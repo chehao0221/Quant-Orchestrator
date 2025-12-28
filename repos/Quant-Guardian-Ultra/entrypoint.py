@@ -118,18 +118,29 @@ def main():
     color = color_map.get(level, "黃")
 
     if level == "L3":
-        notifier.general(
+        notifier.send(
+            kind="general",
             title="⚠️ Guardian 風險提醒",
-            message=f"風險等級：{level}\n狀態：{decision['action']}",
+            message=(
+                f"風險等級：{level}\n"
+                f"系統狀態：風險升高（已降速）\n\n"
+                f"建議：注意市場波動"
+            ),
             color=color,
         )
 
     if level in ("L4", "L5", "L6"):
-        notifier.black_swan(
+        notifier.send(
+            kind="black_swan",
             title="🛑 Guardian 判定今日停盤",
-            message=f"風險等級：{level}\n系統已進入防禦狀態",
+            message=(
+                f"風險等級：{level}\n"
+                f"系統狀態：全面防禦\n\n"
+                f"Stock-Genius / Explorer 已進入暫停狀態"
+            ),
             color="紅",
         )
+
 
     print("[GUARDIAN] 本次盤後風控流程完成")
 
