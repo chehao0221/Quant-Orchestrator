@@ -1,3 +1,7 @@
+# ===== Guardian System Check =====
+from guard_check import check_guardian
+check_guardian()
+# =================================
 import os, sys, json, csv, warnings, datetime, requests, feedparser, urllib.parse, subprocess
 import pandas as pd
 
