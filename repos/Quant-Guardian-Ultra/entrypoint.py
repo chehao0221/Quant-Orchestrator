@@ -1,7 +1,5 @@
 import os
 import sys
-import importlib
-import inspect
 
 # =========================
 # 基本路徑
@@ -32,64 +30,13 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # =========================
-# Core
+# 啟動 Guardian（唯一責任）
 # =========================
 from core.engine import GuardianEngine
 
-# =========================
-# 🔥 動態載入工具
-# =========================
-def load_first_class(module_path: str):
-    module = importlib.import_module(module_path)
-    for _, obj in inspect.getmembers(module, inspect.isclass):
-        if obj.__module__ == module.__name__:
-            print(f"[LOAD] {module_path}.{obj.__name__}")
-            return obj
-    raise ImportError(f"No class found in {module_path}")
-
-
-def load_class_with_keyword(module_path: str, keyword: str):
-    module = importlib.import_module(module_path)
-    for _, obj in inspect.getmembers(module, inspect.isclass):
-        if obj.__module__ == module.__name__ and keyword in obj.__name__:
-            print(f"[LOAD] {module_path}.{obj.__name__}")
-            return obj
-    raise ImportError(f"No class with keyword '{keyword}' found in {module_path}")
-
-
-# =========================
-# Modules（實際對齊你 repo）
-# =========================
-from modules.scanners.news import NewsScanner
-VIXScannerClass = load_class_with_keyword(
-    "modules.scanners.vix_scanner",
-    keyword="Scanner"
-)
-
-DefenseClass = load_first_class(
-    "modules.guardians.defense"
-)
-
-MarketAnalystClass = load_class_with_keyword(
-    "modules.analysts.market_analyst",
-    keyword="Analyst"
-)
-
 
 def main():
-    # ✅ 正確的初始化方式（不傳任何參數）
     engine = GuardianEngine()
-
-    # Scanners
-    engine.register_scanner(NewsScanner())
-    engine.register_scanner(VIXScannerClass())
-
-    # Guardians / Defense
-    engine.register_guardian(DefenseClass())
-
-    # Analysts
-    engine.register_analyst(MarketAnalystClass())
-
     engine.run()
 
 
