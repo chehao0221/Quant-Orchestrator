@@ -30,14 +30,29 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # =========================
-# 啟動 Guardian（就是初始化）
+# 啟動 Guardian（legacy：初始化即執行）
 # =========================
 from core.engine import GuardianEngine
+from core.notifier import DiscordNotifier
 
 
 def main():
-    # 🔥 legacy GuardianEngine：初始化即執行
+    # 啟動 Guardian Engine
     GuardianEngine()
+
+    # =========================
+    # 🫀 每日心跳通知（繁體中文）
+    # =========================
+    try:
+        notifier = DiscordNotifier()
+        notifier.send_heartbeat(
+            status="正常監控中",
+            note="系統已完成本次例行檢查，未偵測到異常風險。"
+        )
+        print("[HEARTBEAT] 心跳通知已送出")
+    except Exception as e:
+        # 心跳失敗不影響 Guardian 主流程
+        print("[HEARTBEAT] 心跳通知失敗：", e)
 
 
 if __name__ == "__main__":
