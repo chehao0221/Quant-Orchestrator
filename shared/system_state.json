@@ -1,8 +1,8 @@
 {
   "version": "1.0",
-  "updated_at": "2025-01-01T08:30:00+08:00",
+  "updated_at": null,
 
-  "risk_level": 2,
+  "risk_level": 1,
 
   "l3": {
     "active": false,
@@ -20,5 +20,9 @@
   "cooldown": {
     "active": false,
     "until": null
+  },
+
+  "source": {
+    "last_writer": null
   }
 }
