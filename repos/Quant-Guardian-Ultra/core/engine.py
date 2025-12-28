@@ -1,29 +1,35 @@
-# core/engine.py
-from risk_policy import resolve_risk
-from notifier import notify_risk
+from core.risk_policy import load_state, save_state, evaluate_risk, should_recheck_l4
+from core.notifier import notify
+from datetime import datetime
 
-def run_engine(state):
-    """
-    Guardian main engine
-    """
-    level = state.get("risk_level", 1)
-    reason = state.get("reason", "N/A")
+def run_guardian(vix, news_score):
+    state = load_state()
+    prev_level = state.get("risk_level", 1)
 
-    policy = resolve_risk(level)
+    level = evaluate_risk(vix, news_score)
 
-    # 通知（L3 / L4）
-    notify_risk(level, reason)
+    if level == 4:
+        if prev_level != 4 or should_recheck_l4(state):
+            notify("RED", 
+                "Guardian 判定市場進入高風險狀態\n\n"
+                "• Stock-Genius / Explorer 已暫停對外輸出\n"
+                "• 系統進入全面防禦模式\n\n"
+                "將於每 90 分鐘重新評估解除條件"
+            )
+            state["l4_last_check"] = datetime.utcnow().isoformat()
 
-    # L4+ → 直接停
-    if policy["action"] == "STOP_AI":
-        print("[Guardian] L4+ detected, all stock systems halted")
-        return
+    elif level == 3 and prev_level != 3:
+        notify("YELLOW",
+            "市場風險升溫\n\n"
+            "• 建議保守解讀 AI 預測\n"
+            "• 尚未進入極端狀態"
+        )
 
-    # L1–L3 才會跑到這裡
-    run_stock_systems()
+    elif level <= 2 and prev_level >= 3:
+        notify("GREEN",
+            "市場風險已回落\n\n"
+            "• 系統恢復正常觀測狀態"
+        )
 
-def run_stock_systems():
-    """
-    Placeholder: actual stock AI / explorer calls
-    """
-    print("[Guardian] Stock systems running (L1–L3)")
+    state["risk_level"] = level
+    save_state(state)
