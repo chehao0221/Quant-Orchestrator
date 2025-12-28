@@ -1,16 +1,12 @@
+# ====== FORCE PROJECT ROOT INTO PYTHONPATH ======
 import os
 import sys
 
-# ===============================
-# 🔧 FIX: Ensure project root is on PYTHONPATH
-# ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+# ===============================================
 
-# ===============================
-# Original imports (UNCHANGED)
-# ===============================
 import hashlib
 from datetime import datetime
 import pytz
