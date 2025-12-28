@@ -7,44 +7,41 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-# ========= 基本路徑設定 =========
+# ========= 基本路徑 =========
 BASE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BASE_DIR.parent.parent  # Quant-Orchestrator/
+REPO_ROOT = BASE_DIR.parent.parent
 SHARED_DIR = REPO_ROOT / "shared"
 STATE_FILE = SHARED_DIR / "guardian_state.json"
 
-# 動態加入模組路徑
+# ========= sys.path =========
 sys.path.insert(0, str(BASE_DIR))
 sys.path.insert(0, str(BASE_DIR / "core"))
 sys.path.insert(0, str(BASE_DIR / "modules"))
 
 print(f"[DEBUG] cwd = {os.getcwd()}")
 
-# ========= 修正錯誤資料夾名稱（scanners / guardians） =========
+# ========= 修正錯誤資料夾名稱 =========
 modules_dir = BASE_DIR / "modules"
 for bad in ["scanners ", "guardians "]:
     bad_path = modules_dir / bad
     if bad_path.exists():
-        fixed = bad.strip()
-        bad_path.rename(modules_dir / fixed)
-        print(f"[FIX] rename '{bad}' -> '{fixed}'")
+        bad_path.rename(modules_dir / bad.strip())
+        print(f"[FIX] rename '{bad}' -> '{bad.strip()}'")
 
 print(f"[DEBUG] modules contents = {os.listdir(modules_dir)}")
 
-# ========= 匯入系統元件 =========
+# ========= 匯入模組（完全對齊原設計） =========
+from core.data_manager import DataManager
+from core.notifier import DiscordNotifier
+
 from modules.scanners.vix_scanner import VixScanner
 from modules.scanners.news import NewsScanner
 from modules.guardians.defense import DefenseManager
 from modules.analysts.market_analyst import MarketAnalyst
-from core.notifier import DiscordNotifier
 
 
-# ========= 寫入 Guardian 狀態（關鍵修正） =========
+# ========= Guardian 狀態寫入 =========
 def write_guardian_state(result: dict):
-    """
-    一定會寫入 shared/guardian_state.json
-    失敗就直接 raise，不吞錯
-    """
     SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
     payload = {
@@ -57,9 +54,8 @@ def write_guardian_state(result: dict):
     with STATE_FILE.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    # 實際驗證檔案存在
     if not STATE_FILE.exists():
-        raise RuntimeError("guardian_state.json 寫入失敗（檔案不存在）")
+        raise RuntimeError("guardian_state.json 寫入失敗")
 
     print(f"[GUARDIAN] 已寫入 {STATE_FILE}")
 
@@ -70,6 +66,9 @@ def main():
 
     notifier = DiscordNotifier()
 
+    # ---------- DataManager（⚠️ 關鍵） ----------
+    data_manager = DataManager()
+
     # ---------- Phase 1：VIX ----------
     print("[PHASE] VIX 恐慌指數掃描")
     vix_scanner = VixScanner()
@@ -78,7 +77,7 @@ def main():
 
     # ---------- Phase 2：新聞 ----------
     print("[PHASE] 新聞掃描 / 去重")
-    news_scanner = NewsScanner()
+    news_scanner = NewsScanner(data_manager)
     news_events = news_scanner.scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
@@ -101,13 +100,12 @@ def main():
 
     print(f"[RESULT] Guardian 判定結果： {decision}")
 
-    # ---------- Phase 5：寫入共享狀態（最重要） ----------
+    # ---------- Phase 5：寫入共享狀態 ----------
     write_guardian_state(decision)
 
-    # ---------- Phase 6：通知（依等級） ----------
+    # ---------- Phase 6：通知 ----------
     level = decision.get("level")
 
-    # 顏色規則：綠 / 黃 / 紅
     color_map = {
         "L1": "綠",
         "L2": "綠",
@@ -119,7 +117,7 @@ def main():
 
     color = color_map.get(level, "黃")
 
-    if level in ("L3",):
+    if level == "L3":
         notifier.general(
             title="⚠️ Guardian 風險提醒",
             message=f"風險等級：{level}\n狀態：{decision['action']}",
