@@ -1,16 +1,17 @@
 import os
 import sys
 
-# === 保險級 import 修正（Orchestrator / 單獨執行 都能跑） ===
+# === Orchestrator / Local execution safety ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# === 正式 imports（不要再改） ===
+# === Core ===
 from core.engine import GuardianEngine
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
 
+# === Modules ===
 from modules.scanners.news import NewsScanner
 from modules.scanners.vix_scanner import VIXScanner
 from modules.guardians.defense import DefenseGuardian
@@ -26,17 +27,16 @@ def main():
         notifier=notifier,
     )
 
-    # === Scanners ===
+    # Scanners
     engine.register_scanner(NewsScanner())
     engine.register_scanner(VIXScanner())
 
-    # === Guardians ===
+    # Guardians
     engine.register_guardian(DefenseGuardian())
 
-    # === Analysts ===
+    # Analysts
     engine.register_analyst(MarketAnalyst())
 
-    # === Run ===
     engine.run()
 
 
