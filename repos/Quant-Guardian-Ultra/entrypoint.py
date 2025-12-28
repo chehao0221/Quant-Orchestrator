@@ -40,12 +40,23 @@ from core.notifier import Notifier
 
 
 # =========================
-# 🔥 通用動態載入器
+# 🔥 動態載入工具
 # =========================
-def load_class(module_path: str, keyword: str):
+def load_first_class(module_path: str):
     """
-    從模組中載入第一個 class 名稱包含 keyword 的 class
+    載入模組中第一個「在該檔案內定義的 class」
     """
+    module = importlib.import_module(module_path)
+
+    for _, obj in inspect.getmembers(module, inspect.isclass):
+        if obj.__module__ == module.__name__:
+            print(f"[LOAD] {module_path}.{obj.__name__}")
+            return obj
+
+    raise ImportError(f"No class found in {module_path}")
+
+
+def load_class_with_keyword(module_path: str, keyword: str):
     module = importlib.import_module(module_path)
 
     for _, obj in inspect.getmembers(module, inspect.isclass):
@@ -57,21 +68,23 @@ def load_class(module_path: str, keyword: str):
 
 
 # =========================
-# Modules（全部動態）
+# Modules（策略化載入）
 # =========================
-from modules.scanners.news import NewsScanner
 
-VIXScannerClass = load_class(
+# Scanner：關鍵字可用
+from modules.scanners.news import NewsScanner
+VIXScannerClass = load_class_with_keyword(
     "modules.scanners.vix_scanner",
     keyword="Scanner"
 )
 
-DefenseGuardianClass = load_class(
-    "modules.guardians.defense",
-    keyword="Guardian"
+# Guardian / Defense：直接取唯一 class
+DefenseClass = load_first_class(
+    "modules.guardians.defense"
 )
 
-MarketAnalystClass = load_class(
+# Analyst：關鍵字可用
+MarketAnalystClass = load_class_with_keyword(
     "modules.analysts.market_analyst",
     keyword="Analyst"
 )
@@ -87,8 +100,8 @@ def main():
     engine.register_scanner(NewsScanner())
     engine.register_scanner(VIXScannerClass())
 
-    # Guardians
-    engine.register_guardian(DefenseGuardianClass())
+    # Defense / Guardian
+    engine.register_guardian(DefenseClass())
 
     # Analysts
     engine.register_analyst(MarketAnalystClass())
