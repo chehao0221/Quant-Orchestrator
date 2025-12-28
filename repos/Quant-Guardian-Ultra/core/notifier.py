@@ -1,9 +1,9 @@
-import os
 import requests
+import os
 from datetime import datetime
 
 # ==================================================
-# Discord Notifier（Final Unified Version）
+# Discord Notifier（Guardian v2 / dict-compatible）
 # ==================================================
 
 class Notifier:
@@ -11,38 +11,34 @@ class Notifier:
         self.webhook_general = os.getenv("DISCORD_WEBHOOK_GENERAL")
         self.webhook_black = os.getenv("DISCORD_WEBHOOK_BLACK_SWAN")
 
-    # --------------------------------------------------
+    def notify(self, decision: dict):
+        """
+        decision 來自 GuardianEngine.run()
+        為 dict，不是物件
+        """
 
-    def notify(self, level: int, decision, changed: bool):
-        """
-        只有在風險等級變化時才發送通知
-        """
-        if not changed:
+        # 只在「狀態變化」時通知
+        if not decision.get("level_changed", False):
             return
 
-        # webhook 分流
-        if decision.level >= 5:
-            webhook = self.webhook_black
-        else:
-            webhook = self.webhook_general
+        level = decision["level"]
+        color_name = decision["color"]
+        description = decision["description"]
+        freeze = decision["freeze"]
 
+        # webhook 分流
+        webhook = (
+            self.webhook_black if level >= 5 else self.webhook_general
+        )
         if not webhook:
             return
 
-        payload = self._build_payload(decision)
-        self._send(webhook, payload)
-
-    # --------------------------------------------------
-
-    def _build_payload(self, decision) -> dict:
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-
-        # === 視覺與語意定義 ===
-        if decision.level >= 4:
+        # 顏色 & 標題
+        if level >= 4:
             color = 15158332  # RED
             emoji = "🔴"
             title = "Guardian 判定：高風險，系統凍結"
-        elif decision.level == 3:
+        elif level == 3:
             color = 15105570  # YELLOW
             emoji = "🟡"
             title = "Guardian 風控提醒：風險升溫"
@@ -51,17 +47,17 @@ class Notifier:
             emoji = "🟢"
             title = "Guardian 狀態更新：市場穩定"
 
-        description = (
-            f"**市場狀態**：{decision.description}\n"
-            f"**風險等級**：L{decision.level}\n"
-            f"**系統狀態**：{'凍結中' if decision.freeze else '正常運行'}"
-        )
+        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-        return {
+        payload = {
             "embeds": [
                 {
                     "title": f"{emoji} {title}",
-                    "description": description,
+                    "description": (
+                        f"**市場狀態**：{description}\n"
+                        f"**風險等級**：L{level}\n"
+                        f"**系統狀態**：{'凍結中' if freeze else '正常運行'}"
+                    ),
                     "color": color,
                     "footer": {
                         "text": f"Quant-Orchestrator • {now}"
@@ -70,9 +66,6 @@ class Notifier:
             ]
         }
 
-    # --------------------------------------------------
-
-    def _send(self, webhook: str, payload: dict):
         try:
             requests.post(webhook, json=payload, timeout=10)
         except Exception as e:
