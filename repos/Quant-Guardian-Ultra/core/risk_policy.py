@@ -24,13 +24,14 @@ RISK_POLICY = {
 }
 
 # ==================================================
-# Configuration
+# Configuration（封版參數）
 # ==================================================
 
-L4_COOLING_HOURS = 3  # L4 最短凍結時間（小時）
+L4_COOLING_HOURS = 3          # L4 最短凍結時間
+L4_STABLE_REQUIRED = 2        # 連續穩定次數（90 分鐘一次）
 
 # ==================================================
-# AI Risk Scoring (原本邏輯，保留)
+# AI Risk Scoring（你原本的核心邏輯，完整保留）
 # ==================================================
 
 def evaluate_risk(vix: float, sentiment: float, event_score: float) -> int:
@@ -59,7 +60,7 @@ def evaluate_risk(vix: float, sentiment: float, event_score: float) -> int:
 
 
 # ==================================================
-# Final Risk Level Decision (含冷卻時間)
+# Final Risk Decision（含冷卻 + 連續穩定）
 # ==================================================
 
 def decide_final_risk_level(
@@ -69,9 +70,12 @@ def decide_final_risk_level(
     sentiment: float,
     event_score: float,
     last_l4_time: Optional[str] = None,
-) -> int:
+    stable_count: int = 0,
+) -> tuple[int, int]:
     """
-    綜合 AI 判斷 + 冷卻時間，決定最終風險等級
+    回傳：
+    - new_level: 最終風險等級
+    - new_stable_count: 更新後的穩定次數
     """
 
     ai_level = evaluate_risk(vix, sentiment, event_score)
@@ -79,32 +83,38 @@ def decide_final_risk_level(
 
     # === 黑天鵝永遠優先 ===
     if ai_level == 5:
-        return 5
+        return 5, 0
 
     # === 進入 L4（嚴格，不放寬）===
     if ai_level >= 4:
-        return 4
+        return 4, 0
 
-    # === L4 冷卻邏輯（只影響降級）===
+    # === L4 狀態下的解凍邏輯 ===
     if current_level == 4:
-        # 沒有時間記錄，保守處理
+        # 無 L4 進入時間，保守維持
         if not last_l4_time:
-            return 4
+            return 4, 0
 
         try:
             l4_time = datetime.fromisoformat(last_l4_time)
         except ValueError:
-            return 4
+            return 4, 0
 
         # 冷卻時間尚未結束
         if now < l4_time + timedelta(hours=L4_COOLING_HOURS):
-            return 4
+            return 4, 0
 
-        # 冷卻完成，只要「沒有繼續惡化」即可降到 L3
+        # 冷卻完成後，檢查是否穩定
         if ai_level <= 3:
-            return 3
+            stable_count += 1
+        else:
+            stable_count = 0
 
-        return 4
+        # 連續穩定次數達標 → 允許降級
+        if stable_count >= L4_STABLE_REQUIRED:
+            return 3, 0
 
-    # === 其他情況：採用 AI 判斷 ===
-    return ai_level
+        return 4, stable_count
+
+    # === 非 L4 狀態，直接採用 AI 判斷 ===
+    return ai_level, 0
