@@ -1,8 +1,14 @@
-name: Explorer Pool & AI
+name: Explorer Update
 
 on:
   schedule:
-    - cron: "0 6 * * 6"   # 每週六
+    # 台股 Explorer（盤後）
+    - cron: "45 5 * * 1-5"
+
+    # 美股 Explorer（盤後）
+    - cron: "30 21 * * 1-5"
+    - cron: "30 22 * * 1-5"
+
   workflow_dispatch:
 
 jobs:
@@ -10,27 +16,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ⭐ Explorer 也尊重 L4
-      - name: Check system state
+      - name: Install dependencies
         run: |
-          python orchestrator/state_reader.py
+          pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
-      - name: Install Explorer dependencies
+      - name: Update Explorer Pools
         run: |
-          pip install -r repos/Stock-Genius-System/requirements.txt
-
-      - name: Update TW Explorer Pool
-        run: |
-          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
-
-      - name: Update US Explorer Pool
-        run: |
-          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
+          python repos/Quant-Guardian-Ultra/modules/update_tw_explorer_pool.py
+          python repos/Quant-Guardian-Ultra/modules/update_us_explorer_pool.py
