@@ -37,7 +37,7 @@ from core.notifier import DiscordNotifier
 
 
 def main():
-    # 啟動 Guardian Engine
+    # 啟動 Guardian Engine（初始化即執行）
     GuardianEngine()
 
     # =========================
@@ -51,7 +51,6 @@ def main():
         )
         print("[HEARTBEAT] 心跳通知已送出")
     except Exception as e:
-        # 心跳失敗不影響 Guardian 主流程
         print("[HEARTBEAT] 心跳通知失敗：", e)
 
 
