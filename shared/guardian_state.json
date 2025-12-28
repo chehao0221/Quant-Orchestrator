@@ -1,0 +1,26 @@
+{
+  "timestamp": "2025-12-28T10:15:00Z",
+
+  "global": {
+    "level": "L3",
+    "color": "YELLOW",
+    "action": "REDUCE",
+    "pause_all": false
+  },
+
+  "markets": {
+    "TW": {
+      "paused": false,
+      "reason": "L3 風險升高，僅提醒",
+      "color": "YELLOW"
+    },
+    "US": {
+      "paused": false,
+      "reason": "L3 風險升高，僅提醒",
+      "color": "YELLOW"
+    }
+  },
+
+  "notes": "VIX 升高 + 一般新聞事件",
+  "source": "Quant-Guardian-Ultra"
+}
