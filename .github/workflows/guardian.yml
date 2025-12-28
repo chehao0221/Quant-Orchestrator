@@ -1,13 +1,17 @@
-name: Guardian Ultra Risk Control
+name: Guardian System
 
 on:
   workflow_dispatch:
-  schedule:
-    # 黑天鵝 / 風控監測（90 分鐘一次）
-    - cron: "*/90 * * * *"
 
-permissions:
-  contents: write
+  schedule:
+    # 📰 一般新聞－盤前（台灣 08:30）
+    - cron: "30 0 * * 1-5"
+
+    # 📰 一般新聞－盤後（台灣 18:00）
+    - cron: "0 10 * * 1-5"
+
+    # 🦢 黑天鵝監控－每 90 分鐘
+    - cron: "*/90 * * * *"
 
 jobs:
   guardian:
@@ -25,7 +29,7 @@ jobs:
         run: |
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
-      - name: Run Guardian Ultra
+      - name: Run Guardian
         env:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
           DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
