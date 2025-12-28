@@ -2,7 +2,8 @@ name: Guardian System
 
 on:
   schedule:
-    - cron: '30 21 * * *'
+    # 每天盤後跑（台灣時間 18:00 = UTC 10:00）
+    - cron: "0 10 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,20 +11,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
 
       - name: Install Guardian dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
-      - name: Run Quant-Guardian-Ultra
-        env:
-          PYTHONPATH: ${{ github.workspace }}/repos/Quant-Guardian-Ultra
-        run: |
-          python repos/Quant-Guardian-Ultra/entrypoint.py
+      # 🔥 關鍵：唯一正確的 Guardian 入口
+      - name: Run Guardian
+        run: python repos/Quant-Guardian-Ultra/entrypoint.py
