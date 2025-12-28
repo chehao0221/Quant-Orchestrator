@@ -2,28 +2,26 @@ import json
 import sys
 from pathlib import Path
 
-STATE_PATH = Path(__file__).parent / "guardian_state.json"
+STATE_FILE = Path("shared/state.json")
 
 def main():
-    if not STATE_PATH.exists():
-        print("[GATE] guardian_state.json 不存在 → 視為安全，允許執行")
-        return 0
+    if not STATE_FILE.exists():
+        print("[GATE] state.json 不存在，視為安全通過（L1）")
+        sys.exit(0)
 
-    with open(STATE_PATH, "r", encoding="utf-8") as f:
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
         state = json.load(f)
 
     level = state.get("level", "L1")
 
     print(f"[GATE] Guardian Level = {level}")
 
-    # 硬停條件
-    if level in ["L4", "BLACK", "BLACK_SWAN"]:
-        print("🛑 Guardian 判定極端風險，Genius workflow 已暫停")
-        return 99
+    if level in ("L4", "L5", "L6"):
+        print("[GATE] 高風險狀態，阻止後續 workflow")
+        sys.exit(1)
 
-    print("✅ Guardian 允許 Genius 繼續執行")
-    return 0
-
+    print("[GATE] 允許執行後續 workflow")
+    sys.exit(0)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
