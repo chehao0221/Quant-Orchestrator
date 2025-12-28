@@ -1,50 +1,54 @@
 import os
+import json
 import requests
 from datetime import datetime
 
-LEVEL_COLOR = {
-    "L1": "🟢",
-    "L2": "🟡",
-    "L3": "🟡",
-    "L4": "🔴",
-    "L5": "🔴",
-}
-
-WEBHOOKS = {
-    "general": os.getenv("DISCORD_WEBHOOK_GENERAL"),
-    "black_swan": os.getenv("DISCORD_WEBHOOK_BLACK_SWAN"),
-    "us": os.getenv("DISCORD_WEBHOOK_US"),
-    "tw": os.getenv("DISCORD_WEBHOOK_TW"),
-}
 
 class DiscordNotifier:
-    def __init__(self, debug: bool = False):
-        self.debug = debug
+    def __init__(self):
+        self.webhooks = {
+            "general": os.getenv("DISCORD_WEBHOOK_GENERAL"),
+            "black_swan": os.getenv("DISCORD_WEBHOOK_BLACK_SWAN"),
+            "us": os.getenv("DISCORD_WEBHOOK_US"),
+            "tw": os.getenv("DISCORD_WEBHOOK_TW"),
+        }
 
-    def _post(self, webhook, content):
+    def _color_code(self, color: str) -> int:
+        # Discord embed color (decimal)
+        return {
+            "綠": 0x2ECC71,
+            "黃": 0xF1C40F,
+            "紅": 0xE74C3C,
+        }.get(color, 0xF1C40F)
+
+    def send(self, *, kind: str, title: str, message: str, color: str):
+        webhook = self.webhooks.get(kind)
+
         if not webhook:
-            if self.debug:
-                print("[WARN] Discord Webhook 未設定")
+            print(f"[WARN] Discord Webhook 未設定（{kind}）")
             return
-        requests.post(webhook, json={"content": content}, timeout=10)
 
-    def notify(self, level: str, title: str, message: str, channel: str):
-        color = LEVEL_COLOR.get(level, "🟡")
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        payload = {
+            "embeds": [
+                {
+                    "title": title,
+                    "description": message,
+                    "color": self._color_code(color),
+                    "footer": {
+                        "text": f"Quant-Orchestrator • {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+                    },
+                }
+            ]
+        }
 
-        content = f"""{color} **{title}**
-
-{message}
-
----
-⏱ {timestamp}
-"""
-
-        self._post(WEBHOOKS.get(channel), content)
-
-    # 專用快捷方法（避免 entrypoint 混亂）
-    def guardian_l3(self, message: str):
-        self.notify("L3", "Guardian 風控提醒", message, "general")
-
-    def guardian_l4(self, message: str):
-        self.notify("L4", "Guardian 黑天鵝警報", message, "black_swan")
+        try:
+            r = requests.post(
+                webhook,
+                data=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            if r.status_code >= 400:
+                print(f"[WARN] Discord 回傳錯誤 {r.status_code}")
+        except Exception as e:
+            print(f"[WARN] Discord 發送失敗：{e}")
