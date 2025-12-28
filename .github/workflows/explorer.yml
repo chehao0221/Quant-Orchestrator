@@ -1,35 +1,36 @@
-name: Explorer System
+name: Explorer Pool & AI
 
 on:
+  schedule:
+    - cron: "0 6 * * 6"   # 每週六
   workflow_dispatch:
 
-  schedule:
-    # 🧭 Explorer 盤後（台灣 19:00）
-    - cron: "0 11 * * 1-5"
-
 jobs:
-  guardian-gate:
-    runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.gate.outputs.allowed }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Guardian Pause Gate
-        id: gate
-        run: |
-          python shared/check_guardian_gate.py
-
   explorer:
-    needs: guardian-gate
-    if: needs.guardian-gate.outputs.allowed == 'true'
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - run: pip install -r repos/Stock-Genius-System/requirements.txt
+
+      # ⭐ Explorer 也尊重 L4
+      - name: Check system state
+        run: |
+          python orchestrator/state_reader.py
+
+      - name: Install Explorer dependencies
+        run: |
+          pip install -r repos/Stock-Genius-System/requirements.txt
+
       - name: Update TW Explorer Pool
-        run: python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
+        run: |
+          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
+
       - name: Update US Explorer Pool
-        run: python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
+        run: |
+          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
