@@ -2,33 +2,29 @@ name: Stock Genius TW
 
 on:
   schedule:
-    - cron: "10 8 * * 1-5"   # 台股交易日早上
+    # 台股收盤後 13:40 (UTC+8)
+    - cron: "40 5 * * 1-5"
+
   workflow_dispatch:
 
 jobs:
-  genius-tw:
+  genius_tw:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ⭐ 先檢查系統狀態（L4 直接跳過）
-      - name: Check system state
-        run: |
-          python orchestrator/state_reader.py
-
-      - name: Install Genius dependencies
+      - name: Install dependencies
         run: |
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Run TW Genius
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_post.py
+      - name: Run Stock Genius TW
         env:
           DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+        run: |
+          python repos/Stock-Genius-System/scripts/ai_tw_post.py
