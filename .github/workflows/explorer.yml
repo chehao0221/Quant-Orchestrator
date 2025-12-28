@@ -2,7 +2,8 @@ name: Explorer System
 
 on:
   schedule:
-    - cron: '30 5 * * *'
+    # Explorer 建議盤後或夜間跑
+    - cron: "30 10 * * *"   # UTC 10:30（台灣 18:30）
   workflow_dispatch:
 
 jobs:
@@ -10,30 +11,70 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
+          python-version: "3.10"
 
-      - name: Install dependencies
+      # ===============================
+      # 🛑 Guardian Gate（Explorer 專用）
+      # ===============================
+      - name: Guardian Risk Gate
+        id: guardian_gate
         run: |
+          python - << 'EOF'
+          import json, os, sys
+
+          STATE_PATH = "repos/Quant-Guardian-Ultra/data/state.json"
+
+          if not os.path.exists(STATE_PATH):
+              print("[GUARDIAN] state.json 不存在，允許 Explorer 執行")
+              sys.exit(0)
+
+          with open(STATE_PATH, "r", encoding="utf-8") as f:
+              state = json.load(f)
+
+          allow = state.get("allow_trading", True)
+          level = state.get("risk_level", "L1")
+
+          if not allow:
+              print("🛑 Explorer 已被 Guardian 暫停")
+              print(f"風險等級：{level}")
+              sys.exit(78)   # neutral success
+          else:
+              print("✅ Guardian 允許 Explorer 執行")
+          EOF
+
+      # ===============================
+      # 📦 安裝 Explorer 相依套件
+      # ===============================
+      - name: Install Explorer dependencies
+        if: success()
+        run: |
+          python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
+      # ===============================
+      # 🧭 更新 Explorer 股池
+      # ===============================
       - name: Update TW Explorer Pool
-        run: |
-          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
+        if: success()
+        run: python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
 
       - name: Update US Explorer Pool
-        run: |
-          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
+        if: success()
+        run: python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
 
+      # ===============================
+      # 🤖 Explorer AI（僅顯示 Top）
+      # ===============================
       - name: Run TW Explorer AI
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_explorer_post.py
+        if: success()
+        run: python repos/Stock-Genius-System/scripts/ai_tw_explorer_post.py
 
       - name: Run US Explorer AI
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_us_explorer_post.py
+        if: success()
+        run: python repos/Stock-Genius-System/scripts/ai_us_explorer_post.py
