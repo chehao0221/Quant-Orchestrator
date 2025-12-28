@@ -1,4 +1,4 @@
-name: Guardian
+name: Guardian Risk Controller
 
 on:
   schedule:
@@ -8,13 +8,24 @@ on:
 jobs:
   guardian:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r repos/Quant-Guardian-Ultra/requirements.txt
-      - run: python repos/Quant-Guardian-Ultra/entrypoint.py
+
+      - name: Install dependencies
+        run: |
+          pip install -r repos/Quant-Guardian-Ultra/requirements.txt
+
+      - name: Run Guardian Engine
+        run: |
+          python repos/Quant-Guardian-Ultra/entrypoint.py
         env:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
           DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
