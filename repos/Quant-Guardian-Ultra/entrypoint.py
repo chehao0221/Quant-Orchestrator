@@ -18,7 +18,7 @@ if MODULES_DIR.exists():
                 p.rename(fixed)
 
 # ==================================================
-# 🔧 sys.path（只放 repo root）
+# 🔧 sys.path（repo root）
 # ==================================================
 sys.path.insert(0, str(BASE_DIR))
 
@@ -26,22 +26,28 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# ✅ imports（完全對齊你現有檔案）
+# ✅ imports（完全對齊你原始設計）
 # ==================================================
 from core.notifier import DiscordNotifier
+from core.data_manager import DataManager
+
 from modules.scanners.vix_scanner import VixScanner
 from modules.scanners.news import NewsScanner
 from modules.guardians.defense import DefenseManager
 from modules.analysts.market_analyst import MarketAnalyst
 
 # ==================================================
-# 🧠 Guardian 主流程（不假設 engine）
+# 🧠 Guardian 主流程
 # ==================================================
 def main():
     print("[GUARDIAN] 啟動 Guardian Ultra 盤後風控流程")
 
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
+
+    # ---------- Phase 0：Data Manager ----------
+    data_path = BASE_DIR / "data" / "state.json"
+    data_manager = DataManager(data_path=str(data_path))
 
     # ---------- Phase 1：VIX ----------
     print("[PHASE] VIX 恐慌指數掃描")
@@ -51,7 +57,7 @@ def main():
 
     # ---------- Phase 2：新聞 ----------
     print("[PHASE] 新聞掃描 / 去重")
-    news_scanner = NewsScanner()
+    news_scanner = NewsScanner(data_manager=data_manager)
     news_events = news_scanner.scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
