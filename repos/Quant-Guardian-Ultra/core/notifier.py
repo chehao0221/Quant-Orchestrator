@@ -3,12 +3,15 @@ import requests
 from datetime import datetime
 
 # ==================================================
-# Discord Notifier（Final）
+# Discord Notifier（Final Unified Version）
 # ==================================================
 
 class Notifier:
     def __init__(self):
-        self.webhook_url = os.getenv("DISCORD_WEBHOOK_GENERAL")
+        self.webhook_general = os.getenv("DISCORD_WEBHOOK_GENERAL")
+        self.webhook_black = os.getenv("DISCORD_WEBHOOK_BLACK_SWAN")
+
+    # --------------------------------------------------
 
     def notify(self, level: int, decision, changed: bool):
         """
@@ -17,25 +20,30 @@ class Notifier:
         if not changed:
             return
 
-        if not self.webhook_url:
-            print("[Notifier] DISCORD_WEBHOOK_GENERAL not set")
+        # webhook 分流
+        if decision.level >= 5:
+            webhook = self.webhook_black
+        else:
+            webhook = self.webhook_general
+
+        if not webhook:
             return
 
-        payload = self._build_payload(level, decision)
-        self._send(payload)
+        payload = self._build_payload(decision)
+        self._send(webhook, payload)
 
     # --------------------------------------------------
 
-    def _build_payload(self, level: int, decision) -> dict:
+    def _build_payload(self, decision) -> dict:
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-        # === 視覺定義 ===
-        if level >= 4:
+        # === 視覺與語意定義 ===
+        if decision.level >= 4:
             color = 15158332  # RED
             emoji = "🔴"
             title = "Guardian 判定：高風險，系統凍結"
-        elif level == 3:
-            color = 15844367  # YELLOW
+        elif decision.level == 3:
+            color = 15105570  # YELLOW
             emoji = "🟡"
             title = "Guardian 風控提醒：風險升溫"
         else:
@@ -64,8 +72,8 @@ class Notifier:
 
     # --------------------------------------------------
 
-    def _send(self, payload: dict):
+    def _send(self, webhook: str, payload: dict):
         try:
-            requests.post(self.webhook_url, json=payload, timeout=10)
+            requests.post(webhook, json=payload, timeout=10)
         except Exception as e:
             print(f"[Notifier] Failed to send message: {e}")
