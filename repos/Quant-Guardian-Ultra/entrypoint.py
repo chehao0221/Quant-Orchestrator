@@ -9,48 +9,46 @@ if BASE_DIR not in sys.path:
 
 from core.notifier import DiscordNotifier
 from core.engine import GuardianEngine
+from modules.scanners.vix_scanner import VixScanner
 
 
 def main():
     notifier = DiscordNotifier()
 
-    # === Phase 1：系統心跳（你已驗證 OK）===
+    # === 系統心跳（如果 webhook 有設就會送）===
     try:
-        notifier.send_heartbeat(status="Phase 1：Engine 啟動測試")
+        notifier.send_heartbeat(status="Phase 2：VIX Scanner 測試")
         print("[OK] Heartbeat sent")
     except Exception as e:
         print(f"[WARN] Heartbeat failed: {e}")
 
-    # === Phase 1：只測試 Engine 是否能跑 ===
     try:
-        print("[PHASE 1] Initializing GuardianEngine ...")
+        print("[PHASE 2] Initializing GuardianEngine ...")
         engine = GuardianEngine()
+        print("[PHASE 2] GuardianEngine initialized")
 
-        print("[PHASE 1] GuardianEngine initialized")
+        print("[PHASE 2] Initializing VIX Scanner ...")
+        vix_scanner = VixScanner()
+        print("[PHASE 2] VIX Scanner initialized")
 
-        # 🔍 嘗試找可執行入口（不假設 API）
-        if hasattr(engine, "run"):
-            print("[PHASE 1] engine.run()")
-            engine.run()
+        # 🔑 嘗試用最保守方式觸發 Scanner
+        if hasattr(vix_scanner, "scan"):
+            print("[PHASE 2] vix_scanner.scan()")
+            result = vix_scanner.scan()
+            print(f"[PHASE 2] VIX scan result: {result}")
 
-        elif hasattr(engine, "execute"):
-            print("[PHASE 1] engine.execute()")
-            engine.execute()
-
-        elif hasattr(engine, "step"):
-            print("[PHASE 1] engine.step()")
-            engine.step()
+        elif hasattr(vix_scanner, "run"):
+            print("[PHASE 2] vix_scanner.run()")
+            result = vix_scanner.run()
+            print(f"[PHASE 2] VIX run result: {result}")
 
         else:
-            print(
-                "[PHASE 1] GuardianEngine instantiated, "
-                "but no runnable method found (run / execute / step)"
-            )
+            print("[PHASE 2] VIX Scanner has no runnable method")
 
-        print("[PHASE 1] Engine test completed")
+        print("[PHASE 2] VIX Scanner test completed")
 
     except Exception:
-        print("[ERROR] Engine execution failed")
+        print("[ERROR] Phase 2 failed")
         traceback.print_exc()
 
 
