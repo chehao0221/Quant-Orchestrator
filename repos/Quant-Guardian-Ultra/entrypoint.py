@@ -26,7 +26,7 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # ==================================================
-# ✅ imports（完全對齊你原始設計）
+# ✅ imports（完全對齊你現有檔案）
 # ==================================================
 from core.notifier import DiscordNotifier
 from core.data_manager import DataManager
@@ -45,9 +45,9 @@ def main():
     notifier = DiscordNotifier()
     notifier.heartbeat(mode="風險監控待命")
 
-    # ---------- Phase 0：Data Manager ----------
+    # ---------- Phase 0：Data Manager（⚠️ positional arg）
     data_path = BASE_DIR / "data" / "state.json"
-    data_manager = DataManager(data_path=str(data_path))
+    data_manager = DataManager(str(data_path))
 
     # ---------- Phase 1：VIX ----------
     print("[PHASE] VIX 恐慌指數掃描")
@@ -57,15 +57,15 @@ def main():
 
     # ---------- Phase 2：新聞 ----------
     print("[PHASE] 新聞掃描 / 去重")
-    news_scanner = NewsScanner(data_manager=data_manager)
+    news_scanner = NewsScanner(data_manager)
     news_events = news_scanner.scan()
     print(f"[INFO] 新聞事件數：{len(news_events)}")
 
     # ---------- Phase 3：市場分析 ----------
     print("[PHASE] 市場分析（台 / 美）")
 
-    tw_analyst = MarketAnalyst(market="TW")
-    us_analyst = MarketAnalyst(market="US")
+    tw_analyst = MarketAnalyst("TW")
+    us_analyst = MarketAnalyst("US")
 
     tw_result = tw_analyst.analyze()
     us_result = us_analyst.analyze()
