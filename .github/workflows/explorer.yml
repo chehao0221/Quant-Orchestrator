@@ -1,9 +1,11 @@
-name: Explorer System
+name: 🧭 Explorer System (Lv2)
 
 on:
   schedule:
-    # 每天盤後（台灣時間 18:30 = UTC 10:30）
-    - cron: "30 10 * * *"
+    # 比 Stock-Genius 晚 30 分鐘
+    - cron: "30 14 * * 1-5"
+    - cron: "30 22 * * 1-5"
+
   workflow_dispatch:
 
 jobs:
@@ -11,25 +13,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Load Guardian State (pause gate)
-        id: guardian
+      - name: Check Guardian State
         run: |
-          STATE_FILE="shared/guardian_state.json"
-          if [ ! -f "$STATE_FILE" ]; then
-            echo "guardian_action=RUN" >> $GITHUB_OUTPUT
-            exit 0
+          if [ -f shared/guardian_state.json ]; then
+            cat shared/guardian_state.json
+            if grep -q '"action": "HALT"' shared/guardian_state.json; then
+              echo "⛔ Guardian 停盤，Explorer 中止"
+              exit 0
+            fi
           fi
-          ACTION=$(jq -r '.action // "RUN"' "$STATE_FILE")
-          echo "guardian_action=$ACTION" >> $GITHUB_OUTPUT
-
-      - name: Stop if Guardian paused system
-        if: steps.guardian.outputs.guardian_action == 'PAUSE' || steps.guardian.outputs.guardian_action == 'HALT'
-        run: |
-          echo "🛑 Guardian 判定今日停盤，Explorer 暫停"
-          exit 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -41,15 +36,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Update Explorer Pools
-        run: |
-          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
-          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
-
-      - name: Post Explorer AI (reuse main AI scripts)
+      - name: Run Explorer
         env:
           DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
           DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
         run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_post.py
-          python repos/Stock-Genius-System/scripts/ai_us_post.py
+          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
+          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
