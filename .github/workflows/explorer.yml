@@ -1,8 +1,8 @@
-name: Explorer System
+name: Explorer System (Lv2)
 
 on:
   schedule:
-    # 每天晚間
+    # 每天盤後較晚執行（台灣時間 19:00 = UTC 11:00）
     - cron: "0 11 * * *"
   workflow_dispatch:
 
@@ -11,47 +11,109 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # ============================
-      # Guardian 風控檢查
-      # ============================
-      - name: Check Guardian Risk State
+      # =========================================
+      # 🛑 Guardian 全域風控 Gate（Explorer）
+      # =========================================
+      - name: Guardian Risk Gate
+        id: guardian_gate
         run: |
-          python - << 'EOF'
-          import json, pathlib, sys
+          echo "🔍 檢查 Guardian 狀態（Explorer）..."
 
-          state_file = pathlib.Path("shared/guardian_state.json")
-          if not state_file.exists():
-              print("⚠️ 無 guardian_state.json，允許 Explorer")
-              sys.exit(0)
+          STATE_FILE="shared/guardian_state.json"
 
-          state = json.loads(state_file.read_text(encoding="utf-8"))
-          if not state.get("allow_trading", True):
-              print("⛔ Guardian 判定停盤，Explorer 暫停")
-              sys.exit(0)
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "⚠️ 找不到 guardian_state.json，視為允許執行 Explorer"
+            echo "pause=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
-          print("✅ Explorer 允許執行")
-          EOF
+          echo "📄 讀取 guardian_state.json"
+          cat "$STATE_FILE"
 
-      # ============================
-      # 正常執行 Explorer
-      # ============================
-      - name: Install dependencies
+          PAUSE=$(python - << 'EOF'
+import json
+with open("shared/guardian_state.json", "r") as f:
+    data = json.load(f)
+print(str(data.get("pause", False)).lower())
+EOF
+)
+
+          LEVEL=$(python - << 'EOF'
+import json
+with open("shared/guardian_state.json", "r") as f:
+    data = json.load(f)
+print(data.get("level", "UNKNOWN"))
+EOF
+)
+
+          REASON=$(python - << 'EOF'
+import json
+with open("shared/guardian_state.json", "r") as f:
+    data = json.load(f)
+print(data.get("reason", ""))
+EOF
+)
+
+          echo "pause=$PAUSE" >> $GITHUB_OUTPUT
+
+          if [ "$PAUSE" = "true" ]; then
+            echo "🛑 Guardian 風控啟動（Explorer 停用）"
+            echo "📉 風險等級：$LEVEL"
+            echo "📌 原因：$REASON"
+            echo "🚫 今日 Explorer Lv2 已停盤"
+          else
+            echo "✅ Guardian 狀態正常，允許執行 Explorer"
+          fi
+
+      # =========================================
+      # ⛔ Guardian 停盤 → Explorer 不跑
+      # =========================================
+      - name: Skip Explorer (Guardian Pause)
+        if: steps.guardian_gate.outputs.pause == 'true'
+        run: |
+          echo "✅ Workflow 正常結束（Guardian 停盤日，Explorer 不執行）"
+          exit 0
+
+      # =========================================
+      # 📦 安裝 Explorer / Stock-Genius 依賴
+      # =========================================
+      - name: Install Explorer dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r repos/Stock-Genius-System/requirements.txt
 
-      - name: Update Explorer Pool
-        run: |
-          python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
-          python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
+      # =========================================
+      # 📊 更新台股 Explorer 股池
+      # =========================================
+      - name: Update TW Explorer Pool
+        run: python repos/Stock-Genius-System/scripts/update_tw_explorer_pool.py
 
-      - name: Run Explorer AI
-        run: |
-          python repos/Stock-Genius-System/scripts/ai_tw_explorer_post.py
-          python repos/Stock-Genius-System/scripts/ai_us_explorer_post.py
+      # =========================================
+      # 📊 更新美股 Explorer 股池
+      # =========================================
+      - name: Update US Explorer Pool
+        run: python repos/Stock-Genius-System/scripts/update_us_explorer_pool.py
+
+      # =========================================
+      # 🧭 Explorer Lv2（台股 Top 5）
+      # =========================================
+      - name: Run TW Explorer AI
+        run: python repos/Stock-Genius-System/scripts/ai_tw_explorer_post.py
+        env:
+          DISCORD_WEBHOOK_TW: ${{ secrets.DISCORD_WEBHOOK_TW }}
+
+      # =========================================
+      # 🧭 Explorer Lv2（美股 Top 5）
+      # =========================================
+      - name: Run US Explorer AI
+        run: python repos/Stock-Genius-System/scripts/ai_us_explorer_post.py
+        env:
+          DISCORD_WEBHOOK_US: ${{ secrets.DISCORD_WEBHOOK_US }}
