@@ -1,24 +1,53 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
-TZ = timezone(timedelta(hours=8))
+L4_RECHECK_MINUTES = 90
 
-def now():
-    return datetime.now(TZ)
+def transition(prev_state: dict, new_level: int) -> dict:
+    now = datetime.utcnow().isoformat() + "Z"
 
-def enter_l4(state, hours=24, reason="black_swan"):
-    t = now()
-    state["risk_level"] = 4
-    state["l4"]["active"] = True
-    state["l4"]["since"] = t.isoformat()
-    state["l4"]["pause_until"] = (t + timedelta(hours=hours)).isoformat()
-    state["cooldown"]["active"] = False
-    return state
+    new_state = prev_state.copy()
+    new_state["risk_level"] = new_level
+    new_state["last_transition"] = now
+    new_state["source"] = "Guardian"
 
-def exit_l4(state):
-    t = now()
-    state["l4"]["active"] = False
-    state["l4"]["last_end"] = t.isoformat()
-    state["cooldown"]["active"] = True
-    state["cooldown"]["until"] = (t + timedelta(hours=12)).isoformat()
-    state["risk_level"] = 2
-    return state
+    if new_level <= 2:
+        new_state["risk_color"] = "GREEN"
+        new_state["risk_label"] = "STABLE"
+        new_state["l4_active"] = False
+
+    elif new_level == 3:
+        new_state["risk_color"] = "YELLOW"
+        new_state["risk_label"] = "WARNING"
+        new_state["l4_active"] = False
+
+    elif new_level == 4:
+        new_state["risk_color"] = "RED"
+        new_state["risk_label"] = "DEFENSE"
+        new_state["l4_active"] = True
+        new_state["l4_last_check"] = now
+
+    return new_state
+
+
+def should_notify(prev_state: dict, new_state: dict) -> bool:
+    """
+    是否需要對外通知（避免洗頻）
+    規則：
+    - 紅 / 黃 進入時要發
+    - 紅 → 綠 要發
+    - 黃 → 綠 要發
+    - 其餘靜默
+    """
+    if prev_state["risk_color"] != new_state["risk_color"]:
+        return True
+    return False
+
+
+def should_recheck_l4(state: dict) -> bool:
+    if not state.get("l4_active"):
+        return False
+    last = state.get("l4_last_check")
+    if not last:
+        return True
+    last_time = datetime.fromisoformat(last.replace("Z", ""))
+    return datetime.utcnow() - last_time >= timedelta(minutes=L4_RECHECK_MINUTES)
