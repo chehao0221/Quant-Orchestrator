@@ -1,6 +1,5 @@
 import os
 import sys
-import inspect
 
 # =========================
 # 基本路徑
@@ -31,28 +30,14 @@ print("[DEBUG] sys.path =", sys.path)
 print("[DEBUG] modules contents =", os.listdir(MODULES_DIR))
 
 # =========================
-# 啟動 Guardian
+# 啟動 Guardian（就是初始化）
 # =========================
 from core.engine import GuardianEngine
 
 
 def main():
-    engine = GuardianEngine()
-
-    # 🔥 自動判斷可用入口（不假設 API）
-    for method_name in ("run", "execute", "start"):
-        if hasattr(engine, method_name):
-            method = getattr(engine, method_name)
-            if callable(method):
-                print(f"[ENGINE] using GuardianEngine.{method_name}()")
-                method()
-                return
-
-    # 如果真的都沒有
-    raise RuntimeError(
-        "GuardianEngine has no runnable entrypoint "
-        "(expected one of: run / execute / start)"
-    )
+    # 🔥 legacy GuardianEngine：初始化即執行
+    GuardianEngine()
 
 
 if __name__ == "__main__":
