@@ -6,25 +6,25 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[3]
 STATE_FILE = BASE_DIR / "shared" / "guardian_state.json"
 
-def check_guardian():
+def check_guardian(task_type: str = "MARKET"):
     """
-    全系統 Guardian 檢查：
-    - L4 以上：直接凍結（exit 0）
-    - L1–L3：正常繼續
+    task_type:
+    - MARKET   → 市場解讀 / AI 預測 / 發 Discord
+    - BACKTEST → 回測 / 歷史分析（Freeze 仍允許）
     """
+
     if not STATE_FILE.exists():
-        # 沒有 Guardian 狀態 → 保守允許執行
         return
 
     try:
         state = json.loads(STATE_FILE.read_text())
     except Exception:
-        # 狀態壞掉 → 保守允許執行
         return
 
     level = state.get("level", 1)
     freeze = state.get("freeze", False)
+    mode = state.get("mode", "HARD")  # 預設 HARD，向下相容
 
-    if freeze or level >= 4:
-        print(f"[Guardian] System frozen at L{level}. Skip execution.")
-        sys.exit(0)   # ⚠️ 一定是 0，不是 error
+    if freeze and level >= 4 and task_type == "MARKET":
+        print(f"[Guardian] HARD FREEZE at L{level}. Skip MARKET task.")
+        sys.exit(0)   # 一定是 0
