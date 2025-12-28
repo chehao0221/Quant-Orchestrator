@@ -1,40 +1,32 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+import json
+from pathlib import Path
 
-# =========================
-# Time
-# =========================
-TZ = timezone(timedelta(hours=8))
+STATE_FILE = Path("../../shared/state.json")
 
-def now_ts():
-    return datetime.now(TZ).strftime("%Y-%m-%d %H:%M (UTC+8)")
+def load_state():
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {}
 
-# =========================
-# Discord Colors
-# =========================
-COLOR_GREEN  = 0x2ECC71   # L1–L2（隱藏）
-COLOR_YELLOW = 0xF1C40F   # L3
-COLOR_RED    = 0xE74C3C   # L4+
+def save_state(state):
+    STATE_FILE.write_text(json.dumps(state, indent=2))
 
-# =========================
-# Risk Policy（唯一決策表）
-# =========================
-def resolve_risk(level: int):
-    if level <= 2:
-        return {
-            "show": False,
-            "color": COLOR_GREEN,
-            "action": "RUN_AI"
-        }
+def evaluate_risk(vix, news_score):
+    """
+    回傳風險等級 L1~L4
+    """
+    if vix > 35 or news_score > 0.8:
+        return 4
+    if vix > 25 or news_score > 0.5:
+        return 3
+    if vix > 18:
+        return 2
+    return 1
 
-    if level == 3:
-        return {
-            "show": True,
-            "color": COLOR_YELLOW,
-            "action": "RUN_AI_WITH_WARNING"
-        }
-
-    return {
-        "show": True,
-        "color": COLOR_RED,
-        "action": "STOP_AI"
-    }
+def should_recheck_l4(state):
+    last = state.get("l4_last_check")
+    if not last:
+        return True
+    last = datetime.fromisoformat(last)
+    return datetime.utcnow() - last >= timedelta(minutes=90)
