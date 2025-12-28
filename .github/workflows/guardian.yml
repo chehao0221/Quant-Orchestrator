@@ -2,10 +2,10 @@ name: Quant Guardian
 
 on:
   schedule:
-    # 台股盤前 08:30 (UTC+8) → 00:30 UTC
+    # 台股盤前 08:30 (UTC+8)
     - cron: "30 0 * * 1-5"
 
-    # 台股盤後 14:00 (UTC+8) → 06:00 UTC
+    # 台股盤後 14:00 (UTC+8)
     - cron: "0 6 * * 1-5"
 
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
         run: |
           pip install -r repos/Quant-Guardian-Ultra/requirements.txt
 
-      - name: Run Guardian
+      - name: Run Quant Guardian
         env:
           DISCORD_WEBHOOK_GENERAL: ${{ secrets.DISCORD_WEBHOOK_GENERAL }}
           DISCORD_WEBHOOK_BLACK_SWAN: ${{ secrets.DISCORD_WEBHOOK_BLACK_SWAN }}
