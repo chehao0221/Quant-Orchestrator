@@ -1,9 +1,12 @@
 {
   "vault_root": "E:/Quant-Vault",
+
   "never_delete": [
-    "shortlist",
-    "core_watch"
+    "LOCKED_RAW",
+    "LOCKED_DECISION",
+    "LOG"
   ],
+
   "ai_allowed_delete": [
     "STOCK_DB/TW/universe",
     "STOCK_DB/TW/history",
@@ -12,13 +15,18 @@
     "STOCK_DB/US/history",
     "STOCK_DB/US/cache"
   ],
+
+  "protected_hot_zones": [
+    "STOCK_DB/TW/shortlist",
+    "STOCK_DB/TW/core_watch",
+    "STOCK_DB/US/shortlist",
+    "STOCK_DB/US/core_watch"
+  ],
+
   "temp_rules": {
-    "max_age_days": 180,
-    "top5_protect_recent_k": 30,
-    "insurance_rules": {
-      "recent_read_days": 7,
-      "historical_top5_times": 3,
-      "market_anomaly_protect": true
-    }
+    "cold_days": 180,
+    "recent_top5_keep": 30,
+    "insurance_read_days": 7,
+    "top5_history_threshold": 3
   }
 }
