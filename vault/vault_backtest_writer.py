@@ -1,23 +1,22 @@
 import json
 from pathlib import Path
-from datetime import datetime
-from vault.schema import VaultBacktestRecord
+from datetime import date
+from .schema import BacktestRecord
 
-VAULT_ROOT = Path("E:/Quant-Vault/STOCK_DB")
+VAULT_DIR = Path(__file__).resolve().parents[1] / "vault_data"
+VAULT_DIR.mkdir(exist_ok=True)
 
-def write_backtest(record: VaultBacktestRecord):
-    path = (
-        VAULT_ROOT
-        / record.market
-        / "history"
-        / f"{record.symbol}.json"
-    )
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+def write_backtest(market: str, records: list[BacktestRecord]):
+    path = VAULT_DIR / f"backtest_{market.lower()}.json"
 
-    data = []
+    existing = []
     if path.exists():
-        data = json.loads(path.read_text(encoding="utf-8"))
+        existing = json.loads(path.read_text())
 
-    data.append(record.__dict__)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    existing.extend(records)
+
+    # 只保留最近 30 筆（夠你 rolling）
+    existing = existing[-30:]
+
+    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2))
