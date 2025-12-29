@@ -1,4 +1,3 @@
-"""
 Quant-Guardian-Ultra
 Guardian v2 Entrypoint (Final)
 
