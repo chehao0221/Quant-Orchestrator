@@ -1,20 +1,26 @@
-from .vault_backtest_reader import read_recent_backtest
+from typing import List
+from .schema import BacktestRecord
 
+def validate(records: List[BacktestRecord]) -> List[BacktestRecord]:
+    """
+    回傳：可被 Vault / AI 採信的回測
+    """
 
-def validate_backtest(market: str) -> dict:
-    records = read_recent_backtest(market, days=5)
-    if not records:
-        return {
-            "status": "NO_DATA",
-            "hit_rate": 0.0,
-            "avg_ret": 0.0,
-        }
+    valid = []
 
-    hits = [r for r in records if r["hit"]]
-    avg_ret = sum(r["actual_ret"] for r in records) / len(records)
+    for r in records:
+        # ❶ 預測與實際不能為 0 垃圾
+        if abs(r.pred_return) < 0.0001:
+            continue
 
-    return {
-        "status": "OK",
-        "hit_rate": len(hits) / len(records),
-        "avg_ret": avg_ret,
-    }
+        # ❷ 信心度太低 → 不影響任何權重
+        if r.confidence < 0.3:
+            continue
+
+        # ❸ 超短 horizon 不可信
+        if r.horizon < 3:
+            continue
+
+        valid.append(r)
+
+    return valid
