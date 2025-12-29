@@ -1,47 +1,56 @@
-import sys, os
+import os, json, sys
 from datetime import datetime
 import requests
-from scripts.safe_yfinance import safe_download
-from vault.vault_backtest_writer import write_prediction
-from vault.vault_backtest_reader import read_last_n_days
+from pathlib import Path
+from vault.vault_backtest_writer import write_backtest
+from vault.vault_backtest_reader import read_last_n
+from vault.vault_backtest_validator import summarize
+from vault.schema import VaultBacktestRecord
 
-HORIZON = 5
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW")
+VAULT_ROOT = Path("E:/Quant-Vault")
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
-CORE = ["2330.TW","2317.TW","2454.TW","2412.TW","2308.TW"]
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW", "")
+MARKET = "TW"
 
 def run():
-    data = safe_download(CORE)
-    results = {}
+    symbols = json.loads((DATA_DIR / "explorer_pool_tw.json").read_text())["symbols"][:500]
+    news = json.loads((DATA_DIR / "news_cache.json").read_text())
 
-    for s in CORE:
-        df = data[s].dropna()
-        ret = df["Close"].pct_change(5).iloc[-1]
-        results[s] = {
-            "price": round(df["Close"].iloc[-1],2),
-            "pred": float(ret)
-        }
+    results = []
+    for sym in symbols:
+        score = 0.0
+        for n in news.get(sym, []):
+            days = (datetime.now() - datetime.fromisoformat(n["date"])).days
+            score += n["impact"] * news_decay(days)
+        results.append((sym, score))
 
-    write_prediction("TW", HORIZON, results)
-    stats = read_last_n_days("TW")
+    top5 = sorted(results, key=lambda x: x[1], reverse=True)[:5]
 
-    msg = f"📊 台股 AI 進階預測報告（{datetime.now():%Y-%m-%d}）\n\n"
-    msg += "👁 核心監控（固定顯示）\n"
+    msg = f"📊 台股 AI 進階預測報告（{datetime.now().date()}）\n\n"
+    msg += "🔍 AI 海選 Top 5（盤後）\n"
 
-    for s,r in results.items():
-        emoji = "🟢" if r["pred"]>0 else "🔴"
-        msg += f"{emoji} {s.replace('.TW','')}｜預估 {r['pred']*100:+.2f}%\n"
-
-    if stats:
-        msg += (
-            f"\n📊 台股｜近 5 日回測結算\n"
-            f"交易筆數：{stats['trades']}\n"
-            f"命中率：{stats['hit_rate']}%\n"
-            f"平均報酬：{stats['avg_ret']}%\n"
-            f"最大回撤：{stats['max_dd']}%\n"
+    for sym, score in top5:
+        rec = VaultBacktestRecord(
+            symbol=sym,
+            market=MARKET,
+            date=str(datetime.now().date()),
+            pred_ret=score / 100,
+            confidence=min(abs(score), 100),
+            source="AI_TW",
+            used_by=["DISCORD"]
         )
+        write_backtest(rec)
+        msg += f"🟢 {sym}｜信心度 {rec.confidence:.0f}%\n"
 
-    requests.post(WEBHOOK, json={"content": msg[:1900]})
+    msg += "\n📊 近 5 日回測\n"
+    for sym, _ in top5:
+        s = summarize(read_last_n(sym, MARKET))
+        if s:
+            msg += f"{sym}：命中率 {s['hit_rate']*100:.1f}%\n"
+
+    if WEBHOOK:
+        requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=10)
 
 if __name__ == "__main__":
     run()
