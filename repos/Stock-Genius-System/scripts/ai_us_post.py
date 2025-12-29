@@ -1,37 +1,34 @@
 import os
 import sys
 import json
-import warnings
 import requests
 from datetime import datetime
 from pathlib import Path
+import warnings
 from xgboost import XGBRegressor
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
 from scripts.safe_yfinance import safe_download
 from scripts.guard_check import check_guardian
-from vault.vault_backtest_reader import load_history, summarize_backtest
+from vault.vault_snapshot_writer import write_snapshot
+from vault.vault_pool_writer import write_pool
 
 warnings.filterwarnings("ignore")
 
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_US", "").strip()
+VAULT_ROOT = Path("E:/Quant-Vault/STOCK_DB/US")
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_US", "").strip()
 HORIZON = 5
-
-VAULT_ROOT = Path("E:/Quant-Vault")
-VAULT_US = VAULT_ROOT / "STOCK_DB" / "US"
-HISTORY_DIR = VAULT_US / "history"
-HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 def calc_pivot(df):
     r = df.iloc[-20:]
     h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
     p = (h + l + c) / 3
-    return round(2 * p - h, 2), round(2 * p - l, 2)
+    return round(2*p - h, 2), round(2*p - l, 2)
 
 def run():
-    check_guardian(task_type="MARKET")
+    check_guardian("MARKET")
 
     core_watch = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
     data = safe_download(core_watch)
@@ -48,7 +45,10 @@ def run():
                 continue
 
             df["mom20"] = df["Close"].pct_change(20)
-            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
+            df["bias"] = (
+                (df["Close"] - df["Close"].rolling(20).mean())
+                / df["Close"].rolling(20).mean()
+            )
             df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
             df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
 
@@ -57,7 +57,7 @@ def run():
                 n_estimators=120,
                 max_depth=3,
                 learning_rate=0.05,
-                random_state=42
+                random_state=42,
             )
             model.fit(train[feats], train["target"])
 
@@ -69,7 +69,7 @@ def run():
                 "pred": round(pred, 4),
                 "price": round(df["Close"].iloc[-1], 2),
                 "support": sup,
-                "resistance": res
+                "resistance": res,
             })
         except Exception:
             continue
@@ -77,48 +77,29 @@ def run():
     if not results:
         return
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    vault_file = HISTORY_DIR / f"{today}.json"
-    vault_file.write_text(
-        json.dumps(results, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
-
-    msg = f"📊 美股 AI 進階預測報告（{today}）\n\n"
+    write_snapshot(VAULT_ROOT, results)
 
     top5 = sorted(results, key=lambda x: x["pred"], reverse=True)[:5]
-    msg += "🔍 AI 海選 Top 5\n"
+    write_pool(VAULT_ROOT, "shortlist", [r["symbol"] for r in top5])
+    write_pool(VAULT_ROOT, "core_watch", [r["symbol"] for r in results])
+
+    if not WEBHOOK:
+        return
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    msg = f"📊 美股 AI 進階預測報告（{date_str}）\n\n"
+    msg += "🔍 AI 海選 Top 5（收盤後）\n\n"
+
     for r in top5:
-        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
+        conf = int(min(max(abs(r["pred"]) * 100, 5), 95))
+        emoji = "🟢" if conf >= 60 else "🟡" if conf >= 40 else "🔴"
         msg += (
-            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
+            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%} ｜信心度 {conf}%\n"
+            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n\n"
         )
 
-    msg += "\n👁 核心監控清單（固定顯示）\n"
-    for r in results:
-        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
-        msg += (
-            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
-        )
-
-    records = load_history(VAULT_US, days=5)
-    summary = summarize_backtest(records)
-
-    if summary:
-        msg += (
-            "\n📊 美股｜近 5 日回測結算（Vault）\n\n"
-            f"樣本數：{summary['count']}\n"
-            f"正報酬比例：{summary['win_rate']}%\n"
-            f"平均預期：{summary['avg_pred']:+.2%}\n"
-            f"最差預期：{summary['max_drawdown']:+.2%}\n"
-        )
-
-    msg += "\n💡 僅供研究參考，非投資建議。"
-
-    if WEBHOOK_URL:
-        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
+    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
+    requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=15)
 
 if __name__ == "__main__":
     run()
