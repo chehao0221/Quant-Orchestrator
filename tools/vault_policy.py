@@ -1,34 +1,40 @@
-# Quant-Orchestrator/tools/vault_policy.py
 from pathlib import Path
 
 VAULT_ROOT = Path(r"E:\Quant-Vault")
+
+LOCKED_PATHS = [
+    VAULT_ROOT / "LOCKED_RAW",
+    VAULT_ROOT / "LOCKED_DECISION",
+    VAULT_ROOT / "LOG",
+]
+
 STOCK_DB = VAULT_ROOT / "STOCK_DB"
 
-# 嚴格保護（幾乎不刪）
-PROTECTED_DIRS = [
-    "shortlist",
-    "core_watch",
+PROTECTED_ZONES = [
+    STOCK_DB / "TW/shortlist",
+    STOCK_DB / "TW/core_watch",
+    STOCK_DB / "US/shortlist",
+    STOCK_DB / "US/core_watch",
 ]
 
-# 可刪（冷資料）
-COLD_DIRS = [
-    "universe",
-    "history",
-    "cache",
+DELETABLE_ZONES = [
+    STOCK_DB / "TW/universe",
+    STOCK_DB / "TW/history",
+    STOCK_DB / "TW/cache",
+    STOCK_DB / "US/universe",
+    STOCK_DB / "US/history",
+    STOCK_DB / "US/cache",
 ]
 
-def classify_stock_path(path: Path):
-    """
-    回傳:
-    - protected
-    - cold
-    - ignore
-    """
-    parts = path.parts
-    for p in PROTECTED_DIRS:
-        if p in parts:
-            return "protected"
-    for c in COLD_DIRS:
-        if c in parts:
-            return "cold"
-    return "ignore"
+def is_deletable_path(path: Path) -> bool:
+    path = path.resolve()
+
+    for locked in LOCKED_PATHS:
+        if locked in path.parents:
+            return False
+
+    for protected in PROTECTED_ZONES:
+        if protected in path.parents:
+            return False
+
+    return any(zone in path.parents for zone in DELETABLE_ZONES)
