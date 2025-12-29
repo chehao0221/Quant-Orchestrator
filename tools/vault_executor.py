@@ -1,12 +1,21 @@
 from pathlib import Path
+from datetime import datetime
 from tools.vault_policy import is_never_delete
-from tools.vault_ai_judge import is_cold
 
-def try_delete(path: Path, cold_days: int) -> bool:
-    if not path.is_file():
-        return False
+LOG_FILE = Path(r"E:\Quant-Vault\LOG\vault_delete.log")
+
+def log(msg: str):
+    LOG_FILE.parent.mkdir(exist_ok=True)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.now()} | {msg}\n")
+
+def safe_delete(path: Path):
     if is_never_delete(path):
-        return False
+        log(f"SKIP (NEVER_DELETE): {path}")
+        return
 
-    mtime = datetime.fromtimestamp(path.stat().st_mtime)
-    return is_cold(mtime, cold_days)
+    try:
+        path.unlink()
+        log(f"DELETED: {path}")
+    except Exception as e:
+        log(f"ERROR: {path} | {e}")
