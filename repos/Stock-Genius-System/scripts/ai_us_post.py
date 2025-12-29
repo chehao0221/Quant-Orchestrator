@@ -1,51 +1,108 @@
+import os
+import sys
+import json
+import warnings
+import requests
+import pandas as pd
 from datetime import datetime
-from utils import load_top5, load_core_watch, load_backtest
-from notifier import send_discord
+from pathlib import Path
+from xgboost import XGBRegressor
 
-def confidence_emoji(conf):
-    if conf >= 60:
-        return "🟢"
-    elif conf >= 40:
-        return "🟡"
-    else:
-        return "🔴"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
-def render_stock_line(code, pred, conf, price, sup, res):
-    emoji = confidence_emoji(conf)
-    return (
-        f"{emoji} {code}：預估 {pred:+.2f}%   信心度 {conf}%\n"
-        f"└ 現價 {price}（支撐 {sup} / 壓力 {res}）"
+from scripts.safe_yfinance import safe_download
+from scripts.guard_check import check_guardian
+
+warnings.filterwarnings("ignore")
+
+check_guardian("MARKET")
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_us.json")
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_US", "").strip()
+
+VAULT_ROOT = Path(os.getenv("QUANT_VAULT", r"E:\Quant-Vault"))
+VAULT_US = VAULT_ROOT / "STOCK_DB" / "US"
+
+for d in ["universe", "shortlist", "core_watch", "history", "cache"]:
+    (VAULT_US / d).mkdir(parents=True, exist_ok=True)
+
+TODAY = datetime.now().strftime("%Y-%m-%d")
+HORIZON = 5
+
+def calc_pivot(df):
+    r = df.iloc[-20:]
+    h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
+    p = (h + l + c) / 3
+    return round(2 * p - h, 2), round(2 * p - l, 2)
+
+def run():
+    core_watch = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
+    data = safe_download(core_watch)
+    if data is None:
+        return
+
+    feats = ["mom20", "bias", "vol_ratio"]
+    results = {}
+
+    for s in core_watch:
+        try:
+            df = data[s].dropna()
+            if len(df) < 120:
+                continue
+
+            df["mom20"] = df["Close"].pct_change(20)
+            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
+            df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
+            df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
+
+            train = df.iloc[:-HORIZON].dropna()
+            model = XGBRegressor(n_estimators=120, max_depth=3, learning_rate=0.05, random_state=42)
+            model.fit(train[feats], train["target"])
+
+            pred = float(model.predict(df[feats].iloc[-1:])[0])
+            sup, res = calc_pivot(df)
+
+            results[s] = {
+                "symbol": s,
+                "pred": round(pred, 4),
+                "price": round(df["Close"].iloc[-1], 2),
+                "support": sup,
+                "resistance": res,
+            }
+        except Exception:
+            continue
+
+    if not results:
+        return
+
+    top5 = sorted(results.values(), key=lambda x: x["pred"], reverse=True)[:5]
+
+    (VAULT_US / "shortlist" / f"{TODAY}.json").write_text(
+        json.dumps(top5, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
-def main():
-    today = datetime.today().strftime("%Y-%m-%d")
+    (VAULT_US / "history" / f"{TODAY}.json").write_text(
+        json.dumps(list(results.values()), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
-    top5 = load_top5("US")
-    core = load_core_watch("US")
-    backtest = load_backtest("US")
+    msg = f"📊 美股 AI 進階預測報告（{TODAY}）\n\n"
+    msg += "🔍 AI 海選 Top 5（盤後）\n\n"
 
-    lines = []
-    lines.append(f"📊 美股 AI 進階預測報告 ({today})")
-    lines.append("------------------------------------------\n")
-    lines.append("🔍 AI 海選 Top 5（潛力股）")
+    for r in top5:
+        emoji = "🟢" if r["pred"] > 0.02 else "🟡" if r["pred"] > 0 else "🔴"
+        msg += (
+            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
+            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n\n"
+        )
 
-    for s in top5:
-        lines.append(render_stock_line(**s))
+    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
 
-    lines.append("\n👁 美股核心監控（固定顯示）")
-    for s in core:
-        lines.append(render_stock_line(**s))
-
-    lines.append("\n------------------------------------------")
-    lines.append("📊 美股｜近 5 日回測結算（歷史觀測）\n")
-    lines.append(f"交易筆數：{backtest['trades']}")
-    lines.append(f"命中率：{backtest['hit_rate']}%")
-    lines.append(f"平均報酬：{backtest['avg_return']}%")
-    lines.append(f"最大回撤：{backtest['max_dd']}%\n")
-    lines.append("📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n")
-    lines.append("💡 模型為機率推估，僅供研究參考，非投資建議。")
-
-    send_discord("\n".join(lines), market="US")
+    if WEBHOOK_URL:
+        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
 
 if __name__ == "__main__":
-    main()
+    run()
