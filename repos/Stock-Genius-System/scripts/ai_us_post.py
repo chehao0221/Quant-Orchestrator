@@ -1,140 +1,134 @@
 import os
+import json
 from datetime import datetime
+from pathlib import Path
 import requests
 
-from scripts.safe_yfinance import safe_download
-from vault.vault_backtest_writer import write_prediction
-from vault.vault_backtest_reader import read_last_n_days
+from vault.vault_backtest_writer import write_backtest
+from vault.vault_backtest_reader import read_last_n
+from vault.vault_backtest_validator import summarize
+from vault.schema import VaultBacktestRecord
 
-# ===============================
-# 固定參數（與 TW 對齊）
-# ===============================
+# ==================================================
+# 基本設定
+# ==================================================
+VAULT_ROOT = Path("E:/Quant-Vault")
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_US", "").strip()
 MARKET = "US"
-HORIZON = 5
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_US")
 
-# 美股核心監控（可自行擴充，但邏輯不變）
-CORE_WATCH = [
-    "AAPL",
-    "MSFT",
-    "NVDA",
-    "AMZN",
-    "GOOGL",
-    "META",
-    "TSLA",
-]
+MAX_CORE_WATCH = 7
 
-# ===============================
+# ==================================================
+# 輔助：消息時間衰退
+# ==================================================
+def news_decay(days_ago: int) -> float:
+    if days_ago <= 1:
+        return 1.0
+    if days_ago <= 3:
+        return 0.6
+    if days_ago <= 7:
+        return 0.3
+    return 0.1
+
+# ==================================================
+# 主流程
+# ==================================================
 def run():
-    # 1️⃣ 抓市場資料（若失敗 → 直接跳過，不亂發）
-    data = safe_download(CORE_WATCH)
-    if data is None:
-        print("[US AI] Data download failed, skip.")
+    # Explorer pool（成交量前 500）
+    pool_path = DATA_DIR / "explorer_pool_us.json"
+    if not pool_path.exists():
         return
 
-    results = {}
+    pool = json.loads(pool_path.read_text(encoding="utf-8"))
+    symbols = pool.get("symbols", [])[:500]
 
-    # 2️⃣ 產生「當日預測」（只負責預測，不驗證）
-    for s in CORE_WATCH:
-        try:
-            df = data[s].dropna()
-            if len(df) < 30:
-                continue
+    # News cache
+    news_path = DATA_DIR / "news_cache.json"
+    news_data = json.loads(news_path.read_text(encoding="utf-8")) if news_path.exists() else {}
 
-            pred_ret = df["Close"].pct_change(HORIZON).iloc[-1]
-            results[s] = {
-                "price": round(df["Close"].iloc[-1], 2),
-                "pred": float(pred_ret),
-            }
-        except Exception:
-            continue
+    # Core watch（歷史固定標）
+    core_watch_path = VAULT_ROOT / "STOCK_DB" / MARKET / "core_watch" / "core_watch.json"
+    core_watch = []
+    if core_watch_path.exists():
+        core_watch = json.loads(core_watch_path.read_text(encoding="utf-8"))
 
-    if not results:
-        print("[US AI] No valid prediction results.")
-        return
+    scores = {}
 
-    # 3️⃣ 寫入 Vault（不可覆寫）
-    write_prediction(
-        market=MARKET,
-        horizon=HORIZON,
-        records=results,
+    # ==================================================
+    # 計算分數（技術指標已前處理，這裡聚焦消息）
+    # ==================================================
+    for sym in symbols:
+        score = 0.0
+        for n in news_data.get(sym, []):
+            days = (datetime.now() - datetime.fromisoformat(n["date"])).days
+            score += n.get("impact", 0.0) * news_decay(days)
+        scores[sym] = score
+
+    # ==================================================
+    # 海選 Top5
+    # ==================================================
+    top5 = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    # ==================================================
+    # 固定標補位（衰退權重由 Vault 內部管理）
+    # ==================================================
+    for sym, _ in top5:
+        if sym not in core_watch:
+            core_watch.append(sym)
+
+    core_watch = core_watch[:MAX_CORE_WATCH]
+
+    # 回寫 core_watch
+    core_watch_path.parent.mkdir(parents=True, exist_ok=True)
+    core_watch_path.write_text(
+        json.dumps(core_watch, indent=2, ensure_ascii=False),
+        encoding="utf-8"
     )
 
-    # 4️⃣ 讀 Vault 真・近 5 日回測（已驗證資料）
-    stats = read_last_n_days(MARKET, days=5)
-
-    # ===============================
-    # Discord 顯示（格式完全照你定義）
-    # ===============================
+    # ==================================================
+    # Discord 顯示
+    # ==================================================
     date_str = datetime.now().strftime("%Y-%m-%d")
+    msg = f"📊 美股 AI 進階預測報告（{date_str}）\n\n"
 
-    msg = (
-        f"📊 美股 AI 進階預測報告（{date_str}）\n"
-        f"🔍 AI 海選 Top 5（今日盤後｜成交量前 500）\n\n"
-    )
+    msg += "🔍 AI 海選 Top 5（盤後｜成交量前 500）\n"
+    for sym, score in top5:
+        confidence = min(abs(score) * 10, 100)
+        emoji = "🟢" if confidence >= 60 else "🟡" if confidence >= 40 else "🔴"
 
-    # 🔍 海選 Top 5（依預估報酬排序）
-    top5 = sorted(
-        results.items(),
-        key=lambda x: x[1]["pred"],
-        reverse=True
-    )[:5]
-
-    for s, r in top5:
-        if r["pred"] >= 0.05:
-            emoji = "🟢"
-        elif r["pred"] >= 0:
-            emoji = "🟡"
-        else:
-            emoji = "🔴"
-
-        msg += (
-            f"{emoji} {s}｜預估 {r['pred']*100:+.2f}%\n"
-            f"└ 現價 {r['price']}\n\n"
+        record = VaultBacktestRecord(
+            symbol=sym,
+            market=MARKET,
+            date=str(datetime.now().date()),
+            pred_ret=score / 100,
+            confidence=confidence,
+            source="AI_US",
+            used_by=["DISCORD"]
         )
+        write_backtest(record)
 
-    # 👁 核心監控（固定顯示）
-    msg += "👁 核心監控清單（長期觀察｜可汰舊換新）\n\n"
+        msg += f"{emoji} {sym}｜信心度 {confidence:.0f}%\n"
 
-    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
-        if r["pred"] >= 0.05:
-            emoji = "🟢"
-        elif r["pred"] >= 0:
-            emoji = "🟡"
-        else:
-            emoji = "🔴"
+    msg += "\n👁 核心監控清單（長期觀察｜可汰舊換新）\n"
+    for sym in core_watch:
+        msg += f"• {sym}\n"
 
-        msg += (
-            f"{emoji} {s}｜預估 {r['pred']*100:+.2f}%\n"
-            f"└ 現價 {r['price']}\n\n"
-        )
+    msg += "\n📊 近 5 日回測（歷史觀測）\n"
+    for sym, _ in top5:
+        s = summarize(read_last_n(sym, MARKET, 5))
+        if s:
+            msg += (
+                f"{sym}｜命中率 {s['hit_rate']*100:.1f}% "
+                f"｜平均報酬 {s['avg_ret']:+.2%}\n"
+            )
 
-    msg += (
-        "核心監控依長期表現動態調整\n"
-        "不等同於今日 Top5，亦不因單日預測即時移除\n"
-    )
+    msg += "\n💡 模型為機率推估，僅供研究參考，非投資建議。"
 
-    # 📊 真・近 5 日回測（只顯示 Vault 已驗證）
-    if stats:
-        msg += (
-            f"\n📊 美股｜近 5 日回測結算（歷史觀測）\n\n"
-            f"交易筆數：{stats['trades']}\n"
-            f"命中率：{stats['hit_rate']}%\n"
-            f"平均報酬：{stats['avg_ret']}%\n"
-            f"最大回撤：{stats['max_dd']}%\n\n"
-            "📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n"
-        )
-
-    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
-
-    # 5️⃣ 發 Discord（只負責發文）
     if WEBHOOK:
-        requests.post(
-            WEBHOOK,
-            json={"content": msg[:1900]},
-            timeout=15
-        )
+        requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=10)
 
-# ===============================
+# ==================================================
 if __name__ == "__main__":
     run()
