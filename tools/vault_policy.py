@@ -3,17 +3,23 @@ from pathlib import Path
 VAULT_ROOT = Path(r"E:\Quant-Vault")
 
 NEVER_DELETE = [
-    VAULT_ROOT / "LOCKED_RAW",
-    VAULT_ROOT / "LOCKED_DECISION",
-    VAULT_ROOT / "LOG",
+    "LOCKED_RAW",
+    "LOCKED_DECISION",
+    "LOG",
 ]
 
-def is_under(path: Path, base: Path) -> bool:
-    try:
-        path.resolve().relative_to(base.resolve())
-        return True
-    except Exception:
-        return False
+HOT_ZONES = [
+    "STOCK_DB/TW/shortlist",
+    "STOCK_DB/TW/core_watch",
+    "STOCK_DB/US/shortlist",
+    "STOCK_DB/US/core_watch",
+]
 
-def is_never_delete(path: Path) -> bool:
-    return any(is_under(path, p) for p in NEVER_DELETE)
+COLD_ZONES = [
+    "STOCK_DB/TW/universe",
+    "STOCK_DB/TW/history",
+    "STOCK_DB/TW/cache",
+    "STOCK_DB/US/universe",
+    "STOCK_DB/US/history",
+    "STOCK_DB/US/cache",
+]
