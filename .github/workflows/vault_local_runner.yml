@@ -1,19 +1,21 @@
-- name: Checkout repo
-  uses: actions/checkout@v4
-  with:
-    clean: false
-name: vault-clean
+name: Vault Local Cleaner
+
 on:
   schedule:
-    - cron: "0 3 * * *"   # 時間你不用再管
+    - cron: '0 10 * * *'   # 每天一次（時間你不用管）
   workflow_dispatch:
 
 jobs:
-  clean:
+  vault-clean:
     runs-on: self-hosted
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Run Vault Cleanup
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Run Vault AI Cleanup
         shell: powershell
         run: |
           python vault/run_vault_cleanup.py
