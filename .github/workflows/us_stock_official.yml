@@ -1,0 +1,16 @@
+name: US Stock Official
+
+on:
+  schedule:
+    - cron: '0 22 * * *'  # 美股盤後 +1 小時
+  workflow_dispatch:
+
+jobs:
+  us:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run US stock (Discord only)
+        run: |
+          python repos/Stock-Genius-System/ai_us_post.py
