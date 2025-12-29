@@ -1,53 +1,21 @@
 import json
-import pandas as pd
 from pathlib import Path
-from typing import List
-from .schema import BacktestRecord
-from datetime import datetime
+from vault.schema import VaultState
 
-def read_csv(path: Path, market: str) -> List[BacktestRecord]:
-    if not path.exists():
+VAULT_FILE = Path("vault/state.json")
+
+def load_ranked(market: str, importance: str | None = None, limit: int = 10):
+    if not VAULT_FILE.exists():
         return []
 
-    df = pd.read_csv(path)
-    records = []
+    state: VaultState = json.loads(VAULT_FILE.read_text())
+    stocks = [
+        s for s in state["stocks"]
+        if s["market"] == market and (importance is None or s["importance"] == importance)
+    ]
 
-    for _, r in df.iterrows():
-        records.append(
-            BacktestRecord(
-                symbol=r["symbol"],
-                market=market,
-                date=r["date"],
-                horizon=int(r.get("horizon", 5)),
-                pred_return=float(r["pred_ret"]),
-                actual_return=float(r.get("actual_ret", 0)),
-                confidence=float(r.get("confidence", 0.5)),
-                model_version=r.get("model", "unknown"),
-                created_at=datetime.utcnow()
-            )
-        )
-    return records
-
-
-def read_json(path: Path) -> List[BacktestRecord]:
-    if not path.exists():
-        return []
-
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    records = []
-
-    for r in raw:
-        records.append(
-            BacktestRecord(
-                symbol=r["symbol"],
-                market=r["market"],
-                date=r["date"],
-                horizon=r["horizon"],
-                pred_return=r["pred_return"],
-                actual_return=r["actual_return"],
-                confidence=r["confidence"],
-                model_version=r["model_version"],
-                created_at=datetime.fromisoformat(r["created_at"])
-            )
-        )
-    return records
+    return sorted(
+        stocks,
+        key=lambda x: (x["decay_weight"], x["avg_pred_ret"]),
+        reverse=True
+    )[:limit]
