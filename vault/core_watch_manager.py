@@ -1,37 +1,77 @@
-from datetime import datetime
-from typing import List, Dict
+import json
+from pathlib import Path
+from datetime import date, datetime, timedelta
 
-DECAY_RATE = 0.98
-MAX_CORE = 7
-REPLACE_THRESHOLD = 0.4
+VAULT_DIR = Path(__file__).resolve().parents[1] / "vault_data"
+VAULT_DIR.mkdir(exist_ok=True)
 
-def decay_core_score(stock: dict):
-    if stock.get("is_black_swan"):
-        return stock["core_score"]
+DECAY_DAYS = 14          # 衰退半衰期
+MAX_CORE = 7             # 固定標最多 7 檔
 
-    days = stock.get("days_since_active", 0)
-    return stock["core_score"] * (DECAY_RATE ** days)
+
+def _decay(weight: float, days: int) -> float:
+    return weight * (0.5 ** (days / DECAY_DAYS))
+
+
+def load_core(market: str) -> list:
+    path = VAULT_DIR / f"core_watch_{market.lower()}.json"
+    if not path.exists():
+        return []
+    return json.loads(path.read_text())
+
+
+def save_core(market: str, core: list):
+    path = VAULT_DIR / f"core_watch_{market.lower()}.json"
+    path.write_text(json.dumps(core, ensure_ascii=False, indent=2))
 
 
 def update_core_watch(
-    core_list: List[dict],
-    explorer_candidates: List[dict]
-) -> List[dict]:
+    market: str,
+    today_hits: list[str],
+    explorer_hits: list[str]
+):
+    """
+    today_hits     → 今天實際進入核心顯示的股票
+    explorer_hits  → 今日 Top5 / Explorer 命中
+    """
 
-    # 衰退
-    for s in core_list:
-        s["core_score"] = decay_core_score(s)
+    today = date.today()
+    core = load_core(market)
+    core_map = {c["symbol"]: c for c in core}
 
-    # 可被替換者
-    core_list = sorted(core_list, key=lambda x: x["core_score"], reverse=True)
-    core_list = [s for s in core_list if s["core_score"] >= REPLACE_THRESHOLD]
+    # 1️⃣ 先對所有既有核心做衰退
+    for c in core:
+        last = datetime.strptime(c["last_active"], "%Y-%m-%d").date()
+        days = (today - last).days
+        c["weight"] = round(_decay(c["weight"], days), 4)
 
-    # 補位
-    for c in explorer_candidates:
-        if len(core_list) >= MAX_CORE:
-            break
-        if c["symbol"] not in {s["symbol"] for s in core_list}:
-            c["is_core"] = True
-            core_list.append(c)
+    # 2️⃣ 今日命中 → 加權
+    for sym in set(today_hits + explorer_hits):
+        if sym not in core_map:
+            core_map[sym] = {
+                "symbol": sym,
+                "market": market,
+                "weight": 1.0,
+                "hit_count": 1,
+                "miss_count": 0,
+                "last_active": today.isoformat(),
+            }
+        else:
+            core_map[sym]["weight"] += 1.0
+            core_map[sym]["hit_count"] += 1
+            core_map[sym]["last_active"] = today.isoformat()
 
-    return core_list[:MAX_CORE]
+    # 3️⃣ 未命中者 miss +1
+    for c in core_map.values():
+        if c["symbol"] not in today_hits:
+            c["miss_count"] += 1
+
+    # 4️⃣ 依權重排序，只留前 MAX_CORE
+    new_core = sorted(
+        core_map.values(),
+        key=lambda x: x["weight"],
+        reverse=True
+    )[:MAX_CORE]
+
+    save_core(market, new_core)
+    return new_core
