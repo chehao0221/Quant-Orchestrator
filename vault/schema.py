@@ -1,15 +1,17 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
-EventType = Literal["BLACK_SWAN", "MAJOR_NEWS", "NORMAL_NEWS"]
+Market = Literal["TW", "US"]
 
 @dataclass
-class VaultEvent:
-    id: str
-    event_type: EventType
-    title: str
-    source: str
-    timestamp: datetime
-    weight: float
-    decay: bool
+class BacktestRecord:
+    symbol: str
+    market: Market
+    date: str               # YYYY-MM-DD
+    horizon: int            # 預測天數
+    pred_return: float
+    actual_return: float
+    confidence: float
+    model_version: str
+    created_at: datetime
