@@ -1,5 +1,4 @@
-from vault.ai_vault_guard import AIVaultGuard
+from utils.vault_ai_cleaner import run
 
 if __name__ == "__main__":
-    guard = AIVaultGuard("config/vault_policy.json")
-    guard.scan_and_clean()
+    run()
