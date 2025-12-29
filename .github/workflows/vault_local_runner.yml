@@ -1,0 +1,17 @@
+name: Vault Local Runner
+
+on:
+  schedule:
+    - cron: '30 7 * * *'   # 台股後
+    - cron: '30 22 * * *'  # 美股後
+  workflow_dispatch:
+
+jobs:
+  vault:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update stock DB
+        run: |
+          python Quant-Orchestrator/vault/run_vault_cleanup.py
