@@ -1,22 +1,59 @@
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
-from datetime import date
-from .schema import BacktestRecord
+from vault.schema import VaultState, StockHistory
 
-VAULT_DIR = Path(__file__).resolve().parents[1] / "vault_data"
-VAULT_DIR.mkdir(exist_ok=True)
+VAULT_FILE = Path("vault/state.json")
 
+DECAY_DAYS = 30
 
-def write_backtest(market: str, records: list[BacktestRecord]):
-    path = VAULT_DIR / f"backtest_{market.lower()}.json"
+def _decay_factor(last_seen: str) -> float:
+    dt = datetime.fromisoformat(last_seen)
+    days = (datetime.utcnow() - dt).days
+    return max(0.2, 1.0 - days / DECAY_DAYS)
 
-    existing = []
-    if path.exists():
-        existing = json.loads(path.read_text())
+def write_backtest(symbol: str, market: str, pred_ret: float, hit: bool, importance: str):
+    now = datetime.utcnow().isoformat()
 
-    existing.extend(records)
+    if VAULT_FILE.exists():
+        state: VaultState = json.loads(VAULT_FILE.read_text())
+    else:
+        state = {
+            "version": 1,
+            "updated_at": now,
+            "stocks": []
+        }
 
-    # 只保留最近 30 筆（夠你 rolling）
-    existing = existing[-30:]
+    for s in state["stocks"]:
+        if s["symbol"] == symbol and s["market"] == market:
+            s["appear_count"] += 1
+            if hit:
+                s["hit_count"] += 1
+                s["last_hit"] = now
 
-    path.write_text(json.dumps(existing, ensure_ascii=False, indent=2))
+            s["avg_pred_ret"] = (
+                (s["avg_pred_ret"] * (s["appear_count"] - 1) + pred_ret)
+                / s["appear_count"]
+            )
+
+            s["last_seen"] = now
+            s["decay_weight"] = s["base_weight"] * _decay_factor(s["last_seen"])
+            break
+    else:
+        state["stocks"].append({
+            "symbol": symbol,
+            "market": market,
+            "appear_count": 1,
+            "hit_count": 1 if hit else 0,
+            "avg_pred_ret": pred_ret,
+            "first_seen": now,
+            "last_seen": now,
+            "last_hit": now if hit else None,
+            "base_weight": 1.0,
+            "decay_weight": 1.0,
+            "importance": importance
+        })
+
+    state["updated_at"] = now
+    VAULT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    VAULT_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
