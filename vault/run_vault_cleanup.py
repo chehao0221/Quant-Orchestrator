@@ -1,4 +1,5 @@
-from utils.vault_ai_cleaner import run
+from vault.ai_vault_guard import scan_market
 
-if __name__ == "__main__":
-    run()
+def run_cleanup():
+    scan_market("TW")
+    scan_market("US")
