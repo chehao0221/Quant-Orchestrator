@@ -1,28 +1,22 @@
 from pathlib import Path
 import json
-from datetime import datetime
-from vault.schema import REQUIRED_FIELDS
 
-def write_snapshot(
+def write_pool(
     market_root: Path,
-    records: list[dict]
+    pool_name: str,
+    symbols: list[str]
 ):
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    history_dir = market_root / "history"
-    history_dir.mkdir(parents=True, exist_ok=True)
+    pool_dir = market_root / pool_name
+    pool_dir.mkdir(parents=True, exist_ok=True)
 
-    out_file = history_dir / f"{date_str}.json"
-
-    cleaned = []
-    for r in records:
-        if not all(k in r for k in REQUIRED_FIELDS):
-            continue
-        cleaned.append(r)
-
-    if not cleaned:
-        return
-
-    out_file.write_text(
-        json.dumps(cleaned, ensure_ascii=False, indent=2),
+    path = pool_dir / "latest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "symbols": symbols,
+            },
+            ensure_ascii=False,
+            indent=2
+        ),
         encoding="utf-8"
     )
