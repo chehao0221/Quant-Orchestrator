@@ -1,17 +1,18 @@
-name: Vault Local Runner
+name: Vault Local Runner Cleanup
 
 on:
   schedule:
-    - cron: '30 7 * * *'   # 台股後
-    - cron: '30 22 * * *'  # 美股後
+    - cron: "30 3 * * *"   # 每天一次（隨便，反正只在本地 runner 生效）
   workflow_dispatch:
 
 jobs:
-  vault:
+  vault-cleanup:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Update stock DB
+      - name: Run Vault AI Cleanup
+        shell: python
         run: |
-          python Quant-Orchestrator/vault/run_vault_cleanup.py
+          python vault/run_vault_cleanup.py
