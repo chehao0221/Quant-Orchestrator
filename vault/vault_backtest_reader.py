@@ -1,31 +1,38 @@
 from pathlib import Path
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
-def load_history(
-    market: str,
-    days: int = 5,
-):
-    """
-    market: 'TW' | 'US'
-    days: 取最近 N 個交易日
-    """
-    root = Path(f"E:/Quant-Vault/STOCK_DB/{market}/history")
-    if not root.exists():
-        return []
+VAULT_ROOT = Path("E:/Quant-Vault/LOCKED_RAW/backtest")
 
-    files = sorted(root.glob("*.json"))
-    files = files[-days:]
+def read_recent_backtest(market: str, days: int = 5):
+    market_dir = VAULT_ROOT / market
+    if not market_dir.exists():
+        return None
 
+    files = sorted(market_dir.glob("*.json"), reverse=True)
     records = []
-    for f in files:
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            date = f.stem
-            for r in data:
-                r["_date"] = date
-                records.append(r)
-        except Exception:
-            continue
 
-    return records
+    for f in files:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        for sym, r in data["symbols"].items():
+            if r["hit"] is None:
+                continue
+            records.append(r)
+
+        if len(records) >= days:
+            break
+
+    if not records:
+        return None
+
+    total = len(records)
+    wins = [r for r in records if r["hit"]]
+    avg_ret = sum(r["actual_ret"] for r in records) / total
+    max_dd = min(r["actual_ret"] for r in records)
+
+    return {
+        "trades": total,
+        "hit_rate": len(wins) / total * 100,
+        "avg_ret": avg_ret,
+        "max_dd": max_dd
+    }
