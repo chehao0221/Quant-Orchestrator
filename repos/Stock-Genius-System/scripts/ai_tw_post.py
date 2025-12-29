@@ -1,131 +1,184 @@
 import os
 import sys
 import json
-import math
+import warnings
 import requests
-from datetime import datetime, timedelta
+import pandas as pd
+from datetime import datetime
 from pathlib import Path
+from xgboost import XGBRegressor
+
+warnings.filterwarnings("ignore")
 
 # ==================================================
-# Path Fix（保證 GitHub Actions / 本地都不迷路）
+# Path Fix
 # ==================================================
-BASE_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(BASE_DIR))
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from safe_yfinance import safe_download
 
 # ==================================================
-# External Guards
+# Paths
 # ==================================================
-from scripts.guard_check import check_guardian
-from vault.vault_backtest_reader import read_recent_backtest
-from vault.schema import StockScoreSchema
+DATA_DIR = BASE_DIR / "data"
+HISTORY_FILE = DATA_DIR / "tw_history.csv"
+EXPLORER_POOL_FILE = DATA_DIR / "explorer_pool_tw.json"
+
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
+
+# Guardian State（只讀）
+GUARDIAN_STATE = BASE_DIR.parents[2] / "shared" / "guardian_state.json"
+
+HORIZON = 5
 
 # ==================================================
-# Env
-# ==================================================
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
+def guardian_freeze():
+    if not GUARDIAN_STATE.exists():
+        return False
+    try:
+        state = json.loads(GUARDIAN_STATE.read_text())
+        return state.get("freeze", False) and state.get("level", 0) >= 4
+    except Exception:
+        return False
 
 # ==================================================
-# Config
-# ==================================================
-MARKET = "TW"
-MAX_CORE = 7
-TOP_K = 5
-LOOKBACK_DAYS = 5
+def calc_pivot(df):
+    r = df.iloc[-20:]
+    h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
+    p = (h + l + c) / 3
+    return round(2 * p - h, 2), round(2 * p - l, 2)
 
-# ==================================================
-# Helpers
-# ==================================================
 def confidence_color(score: float):
-    if score >= 0.65:
+    if score >= 0.6:
         return "🟢"
-    if score >= 0.45:
+    elif score >= 0.4:
         return "🟡"
-    return "🔴"
+    else:
+        return "🔴"
 
-def decay(days: int):
-    return math.exp(-days / 7)
-
-# ==================================================
-# Main
 # ==================================================
 def run():
-    # ----------------------------------------------
-    # Guardian 檢查（MARKET）
-    # ----------------------------------------------
-    check_guardian(task_type="MARKET")
-
-    # ----------------------------------------------
-    # 讀 Vault Backtest（JSON）
-    # ----------------------------------------------
-    records = read_recent_backtest(
-        market=MARKET,
-        days=LOOKBACK_DAYS
-    )
-
-    if not records:
-        print("[AI_TW] No backtest data.")
+    if guardian_freeze():
+        print("[Guardian] L4+ Freeze → Skip TW AI post")
         return
 
-    scores = []
-    for r in records:
-        s = StockScoreSchema.from_dict(r)
-        scores.append(s)
+    # 台股核心監控
+    core_watch = [
+        "2330.TW",  # 台積電
+        "2317.TW",  # 鴻海
+        "2454.TW",  # 聯發科
+        "2308.TW",  # 台達電
+        "2412.TW",  # 中華電
+    ]
 
-    # ----------------------------------------------
-    # 海選 Top 5（綜合分數）
-    # ----------------------------------------------
-    top5 = sorted(scores, key=lambda x: x.final_score, reverse=True)[:TOP_K]
+    data = safe_download(core_watch)
+    if data is None:
+        print("[INFO] TW AI skipped (data failure)")
+        return
 
-    # ----------------------------------------------
-    # 固定標（含衰退權重）
-    # ----------------------------------------------
-    core_sorted = sorted(
-        scores,
-        key=lambda x: (x.long_term_weight * decay(x.days_since_hot)),
-        reverse=True
-    )
-    core_watch = core_sorted[:MAX_CORE]
+    feats = ["mom20", "bias", "vol_ratio"]
+    results = {}
 
-    # ----------------------------------------------
-    # Discord 組裝
-    # ----------------------------------------------
-    today = datetime.now().strftime("%Y-%m-%d")
-    msg = f"📊 台股 AI 進階預測報告（{today}）\n\n"
-
-    # ---- Top 5 ----
-    msg += "🔍 AI 海選 Top 5（今日盤後）\n\n"
-    for s in top5:
-        color = confidence_color(s.confidence)
-        msg += (
-            f"{color} {s.symbol}｜預估 {s.pred_ret:+.2%} ｜信心度 {int(s.confidence*100)}%\n"
-            f"└ 現價 {s.price}（支撐 {s.support} / 壓力 {s.resistance}）\n\n"
-        )
-
-    # ---- Core ----
-    msg += "👁 核心監控清單（長期｜可汰舊換新）\n\n"
     for s in core_watch:
-        color = confidence_color(s.confidence)
+        try:
+            df = data[s].dropna()
+            if len(df) < 120:
+                continue
+
+            df["mom20"] = df["Close"].pct_change(20)
+            df["bias"] = (
+                (df["Close"] - df["Close"].rolling(20).mean())
+                / df["Close"].rolling(20).mean()
+            )
+            df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
+            df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
+
+            train = df.iloc[:-HORIZON].dropna()
+            model = XGBRegressor(
+                n_estimators=120,
+                max_depth=3,
+                learning_rate=0.05,
+                random_state=42,
+            )
+            model.fit(train[feats], train["target"])
+
+            pred = float(model.predict(df[feats].iloc[-1:])[0])
+            sup, res = calc_pivot(df)
+
+            confidence = min(0.9, max(0.1, abs(pred) * 8))
+
+            results[s] = {
+                "pred": pred,
+                "price": round(df["Close"].iloc[-1], 2),
+                "sup": sup,
+                "res": res,
+                "conf": confidence,
+            }
+        except Exception:
+            continue
+
+    if not results:
+        return
+
+    # ==================================================
+    # Discord Message
+    # ==================================================
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    msg = f"📊 台股 AI 進階預測報告（{date_str}）\n\n"
+
+    # 🔍 Explorer Top 5
+    if EXPLORER_POOL_FILE.exists():
+        try:
+            pool = json.loads(EXPLORER_POOL_FILE.read_text())
+            explorer = pool.get("symbols", [])[:200]
+
+            hits = [(s, results[s]) for s in explorer if s in results]
+            top5 = sorted(hits, key=lambda x: x[1]["pred"], reverse=True)[:5]
+
+            if top5:
+                msg += "🔍 AI 海選 Top 5（盤後）\n\n"
+                for s, r in top5:
+                    emoji = confidence_color(r["conf"])
+                    sym = s.replace(".TW", "")
+                    msg += (
+                        f"{emoji} {sym}｜預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
+                        f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n\n"
+                    )
+        except Exception:
+            pass
+
+    # 👁 Core Watch
+    msg += "👁 核心監控（固定顯示）\n\n"
+    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
+        emoji = confidence_color(r["conf"])
+        sym = s.replace(".TW", "")
         msg += (
-            f"{color} {s.symbol}｜預估 {s.pred_ret:+.2%} ｜信心度 {int(s.confidence*100)}%\n"
-            f"└ 現價 {s.price}（支撐 {s.support} / 壓力 {s.resistance}）\n\n"
+            f"{emoji} {sym}｜預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
+            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n\n"
         )
 
-    # ---- 回測 ----
-    wins = [s for s in scores if s.real_ret > 0]
-    avg = sum(s.real_ret for s in scores) / len(scores)
+    # 📊 5 日回測
+    if HISTORY_FILE.exists():
+        try:
+            hist = pd.read_csv(HISTORY_FILE).tail(5)
+            if not hist.empty:
+                win = hist[hist["pred_ret"] > 0]
+                msg += (
+                    "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
+                    f"交易筆數：{len(hist)}\n"
+                    f"命中率：{len(win)/len(hist)*100:.1f}%\n"
+                    f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
+                    f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
+                )
+        except Exception:
+            pass
 
-    msg += (
-        "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
-        f"交易筆數：{len(scores)}\n"
-        f"命中率：{len(wins)/len(scores)*100:.1f}%\n"
-        f"平均報酬：{avg:+.2%}\n"
-        f"最大回撤：{min(s.real_ret for s in scores):+.2%}\n\n"
-        "📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n"
-        "💡 模型為機率推估，僅供研究參考，非投資建議。"
-    )
+    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
 
-    if WEBHOOK:
-        requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=15)
+    if WEBHOOK_URL:
+        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
 
 # ==================================================
 if __name__ == "__main__":
