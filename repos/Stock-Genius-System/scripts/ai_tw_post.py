@@ -1,81 +1,51 @@
-# ===== Guardian System Check =====
-from guard_check import check_guardian
-check_guardian()
-# =================================
+from datetime import datetime
+from utils import load_top5, load_core_watch, load_backtest
+from notifier import send_discord
 
-import json
-import random
-from datetime import date
+def confidence_emoji(conf):
+    if conf >= 60:
+        return "🟢"
+    elif conf >= 40:
+        return "🟡"
+    else:
+        return "🔴"
 
-# ===== 基本設定 =====
-FIXED_TW = [
-    "2330.TW",
-    "2317.TW",
-    "2454.TW",
-    "2308.TW",
-    "2412.TW",
-]
-
-# 模擬：成交量前 500（股票＋ETF）
-CANDIDATES = [f"TW{i:04d}" for i in range(1, 600)]
-
-def confidence_label(score: float) -> str:
-    if score >= 0.7:
-        return "信心高"
-    elif score >= 0.5:
-        return "信心中"
-    return "信心低"
-
-def fake_ai_predict(symbol: str):
-    change = round(random.uniform(-4, 5), 2)
-    conf = round(random.uniform(0.45, 0.85), 2)
-    price = round(random.uniform(20, 1500), 2)
-    support = round(price * random.uniform(0.93, 0.97), 2)
-    resistance = round(price * random.uniform(1.03, 1.08), 2)
-    return change, conf, price, support, resistance
+def render_stock_line(code, pred, conf, price, sup, res):
+    emoji = confidence_emoji(conf)
+    return (
+        f"{emoji} {code}：預估 {pred:+.2f}%   信心度 {conf}%\n"
+        f"└ 現價 {price}（支撐 {sup} / 壓力 {res}）"
+    )
 
 def main():
-    today = date.today().isoformat()
+    today = datetime.today().strftime("%Y-%m-%d")
 
-    # 排除固定監控
-    pool = [s for s in CANDIDATES if s not in FIXED_TW]
+    top5 = load_top5("TW")
+    core = load_core_watch("TW")
+    backtest = load_backtest("TW")
 
-    scored = []
-    for s in pool:
-        change, conf, price, sup, res = fake_ai_predict(s)
-        scored.append((s, change, conf, price, sup, res))
+    lines = []
+    lines.append(f"📊 台股 AI 進階預測報告 ({today})")
+    lines.append("------------------------------------------\n")
+    lines.append("🔍 AI 海選 Top 5（潛力股）")
 
-    # AI 海選 Top 5
-    top5 = sorted(scored, key=lambda x: x[1], reverse=True)[:5]
+    for s in top5:
+        lines.append(render_stock_line(**s))
 
-    # 固定監控
-    fixed_data = [fake_ai_predict(s) for s in FIXED_TW]
+    lines.append("\n👁 台股核心監控（固定顯示）")
+    for s in core:
+        lines.append(render_stock_line(**s))
 
-    report = []
-    report.append(f"🟢 台股 AI 進階預測報告 ({today})")
-    report.append("────────────────────────")
-    report.append("🧠 Guardian 等級：L2（GREEN）")
-    report.append("📊 模型信心度：0.75\n")
+    lines.append("\n------------------------------------------")
+    lines.append("📊 台股｜近 5 日回測結算（歷史觀測）\n")
+    lines.append(f"交易筆數：{backtest['trades']}")
+    lines.append(f"命中率：{backtest['hit_rate']}%")
+    lines.append(f"平均報酬：{backtest['avg_return']}%")
+    lines.append(f"最大回撤：{backtest['max_dd']}%\n")
+    lines.append("📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n")
+    lines.append("💡 模型為機率推估，僅供研究參考，非投資建議。")
 
-    report.append("🔍 AI 海選 Top 5（股票 / ETF 黑馬）")
-    for s, ch, conf, p, sup, res in top5:
-        report.append(f"{s}｜預估 {ch:+.2f}%（{confidence_label(conf)}）")
-        report.append(f"└ 現價 {p}｜支撐 {sup}｜壓力 {res}\n")
-
-    report.append("\n🔒 固定核心監控（不參與海選）")
-    for s in FIXED_TW:
-        ch, conf, p, sup, res = fake_ai_predict(s)
-        report.append(f"{s}｜預估 {ch:+.2f}%（{confidence_label(conf)}）")
-        report.append(f"└ 現價 {p}｜支撐 {sup}｜壓力 {res}\n")
-
-    report.append("────────────────────────")
-    report.append("📈 5 日回測摘要")
-    report.append("交易筆數：10")
-    report.append("命中率：40.0%")
-    report.append("最大回撤：-3.29%\n")
-    report.append("⚠️ AI 為機率模型，僅供研究參考")
-
-    print("\n".join(report))
+    send_discord("\n".join(lines), market="TW")
 
 if __name__ == "__main__":
     main()
