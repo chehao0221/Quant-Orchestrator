@@ -1,8 +1,8 @@
 import os
 import sys
 import json
-import warnings
 import requests
+import warnings
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -10,82 +10,58 @@ from xgboost import XGBRegressor
 
 warnings.filterwarnings("ignore")
 
-# ==================================================
+# ===============================
 # Path Fix
-# ==================================================
-SCRIPT_DIR = Path(__file__).resolve().parent
-BASE_DIR = SCRIPT_DIR.parent
-ROOT_DIR = BASE_DIR.parents[2]
-sys.path.insert(0, str(SCRIPT_DIR))
-sys.path.insert(0, str(ROOT_DIR))
+# ===============================
+BASE_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(BASE_DIR))
 
-from safe_yfinance import safe_download
+from scripts.safe_yfinance import safe_download
+from scripts.guard_check import check_guardian
+
 from vault.core_watch_manager import update_core_watch
+from vault.explorer_weight_tracker import record_explorer_hit
+from vault.vault_backtest_writer import write_backtest
+from vault.vault_backtest_reader import read_recent_backtest
+from vault.vault_backtest_validator import summarize_backtest
 
-# ==================================================
-# Paths
-# ==================================================
-DATA_DIR = BASE_DIR / "data"
-HISTORY_FILE = DATA_DIR / "tw_history.csv"
-EXPLORER_POOL_FILE = DATA_DIR / "explorer_pool_tw.json"
-
-CORE_STATE_FILE = DATA_DIR / "core_watch_tw.json"
-
-GUARDIAN_STATE = ROOT_DIR / "shared" / "guardian_state.json"
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
-
+# ===============================
+# Config
+# ===============================
+MARKET = "TW"
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
 HORIZON = 5
-MAX_CORE = 7
 
-# ==================================================
-def guardian_freeze():
-    if not GUARDIAN_STATE.exists():
-        return False
-    try:
-        state = json.loads(GUARDIAN_STATE.read_text())
-        return state.get("freeze", False) and state.get("level", 0) >= 4
-    except Exception:
-        return False
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
 
+HISTORY_CSV = DATA_DIR / "tw_history.csv"
+EXPLORER_POOL = DATA_DIR / "explorer_pool_tw.json"
+
+# ===============================
 def calc_pivot(df):
     r = df.iloc[-20:]
     h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
     p = (h + l + c) / 3
     return round(2 * p - h, 2), round(2 * p - l, 2)
 
-def confidence_emoji(conf):
-    if conf >= 0.6:
-        return "🟢"
-    elif conf >= 0.4:
-        return "🟡"
-    else:
-        return "🔴"
-
-# ==================================================
+# ===============================
 def run():
-    if guardian_freeze():
-        print("[Guardian] L4+ Freeze → Skip TW AI")
-        return
+    # Guardian Freeze Check
+    check_guardian(task_type="MARKET")
 
-    # === 核心候選（成交量前 500 已由 Explorer 準備）===
-    if not EXPLORER_POOL_FILE.exists():
-        print("[Explorer] pool missing")
-        return
+    core_universe = [
+        "2330.TW", "2317.TW", "2454.TW", "2308.TW", "2412.TW"
+    ]
 
-    explorer_pool = json.loads(EXPLORER_POOL_FILE.read_text()).get("symbols", [])[:500]
-
-    data = safe_download([f"{s}.TW" for s in explorer_pool])
+    data = safe_download(core_universe)
     if data is None:
-        print("[Data] download failed")
         return
 
     feats = ["mom20", "bias", "vol_ratio"]
-    today_results = []
+    results = {}
 
-    for sym in explorer_pool:
-        s = f"{sym}.TW"
-        if s not in data:
-            continue
+    for s in core_universe:
         try:
             df = data[s].dropna()
             if len(df) < 120:
@@ -101,75 +77,88 @@ def run():
                 n_estimators=120,
                 max_depth=3,
                 learning_rate=0.05,
-                random_state=42,
+                random_state=42
             )
             model.fit(train[feats], train["target"])
 
             pred = float(model.predict(df[feats].iloc[-1:])[0])
             sup, res = calc_pivot(df)
-            conf = min(0.9, max(0.1, abs(pred) * 8))
 
-            today_results.append({
-                "symbol": sym,
+            results[s.replace(".TW", "")] = {
                 "pred": pred,
                 "price": round(df["Close"].iloc[-1], 2),
                 "sup": sup,
-                "res": res,
-                "conf": conf,
-            })
+                "res": res
+            }
+
+            write_backtest(
+                market=MARKET,
+                symbol=s.replace(".TW", ""),
+                pred=pred
+            )
+
         except Exception:
             continue
 
-    if not today_results:
+    if not results:
         return
 
-    # === Top5 ===
-    top5 = sorted(today_results, key=lambda x: x["pred"], reverse=True)[:5]
-    for s in top5:
-        s["is_top5"] = True
-        s["core_score"] = 1.0
-        s["days_since_active"] = 0
+    # ===============================
+    # Explorer Top5
+    # ===============================
+    explorer_hits = []
+    if EXPLORER_POOL.exists():
+        pool = json.loads(EXPLORER_POOL.read_text())
+        syms = pool.get("symbols", [])[:100]
+        hits = [(s.replace(".TW", ""), results[s.replace(".TW", "")])
+                for s in syms if s.replace(".TW", "") in results]
+        explorer_hits = [s for s, _ in sorted(hits, key=lambda x: x[1]["pred"], reverse=True)[:5]]
+        record_explorer_hit(MARKET, explorer_hits)
 
-    # === Core Watch ===
-    core_prev = []
-    if CORE_STATE_FILE.exists():
-        core_prev = json.loads(CORE_STATE_FILE.read_text())
+    # ===============================
+    # Core Watch (Vault)
+    # ===============================
+    core = update_core_watch(
+        market=MARKET,
+        today_hits=list(results.keys()),
+        explorer_hits=explorer_hits
+    )
 
-    core_updated = update_core_watch(core_prev, top5)
-    CORE_STATE_FILE.write_text(json.dumps(core_updated, ensure_ascii=False, indent=2))
+    # ===============================
+    # Backtest Summary
+    # ===============================
+    recent = read_recent_backtest(MARKET, days=5)
+    summary = summarize_backtest(recent)
 
-    # === Discord ===
-    msg = f"📊 台股 AI 進階預測報告（{datetime.now().date()}）\n\n"
+    # ===============================
+    # Discord Message
+    # ===============================
+    today = datetime.now().strftime("%Y-%m-%d")
+    msg = f"📊 台股 AI 進階預測報告（{today}）\n\n"
 
-    msg += "🔍 AI 海選 Top 5（盤後）\n\n"
-    for s in top5:
-        msg += (
-            f"{confidence_emoji(s['conf'])} {s['symbol']}｜預估 {s['pred']:+.2%} ｜信心度 {int(s['conf']*100)}%\n"
-            f"└ 現價 {s['price']}（支撐 {s['sup']} / 壓力 {s['res']}）\n\n"
-        )
+    msg += "🔍 AI 海選 Top 5\n"
+    for s in explorer_hits:
+        r = results[s]
+        msg += f"{s}｜預估 {r['pred']:+.2%}\n"
 
-    msg += "👁 核心監控清單（長期｜可汰舊換新）\n\n"
-    for s in core_updated:
-        msg += (
-            f"{confidence_emoji(s.get('conf', 0.5))} {s['symbol']}\n"
-        )
+    msg += "\n👁 核心監控清單（Vault）\n"
+    for c in core:
+        s = c["symbol"]
+        r = results.get(s)
+        if not r:
+            continue
+        msg += f"{s}｜預估 {r['pred']:+.2%}\n"
 
-    if HISTORY_FILE.exists():
-        hist = pd.read_csv(HISTORY_FILE).tail(5)
-        if not hist.empty:
-            win = hist[hist["pred_ret"] > 0]
-            msg += (
-                "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
-                f"交易筆數：{len(hist)}\n"
-                f"命中率：{len(win)/len(hist)*100:.1f}%\n"
-                f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
-                f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
-            )
+    msg += (
+        "\n📊 近 5 日回測結算\n"
+        f"交易筆數：{summary['count']}\n"
+        f"命中率：{summary['win_rate']:.1f}%\n"
+        f"平均報酬：{summary['avg_ret']:+.2%}\n"
+        f"最大回撤：{summary['max_dd']:+.2%}\n"
+    )
 
-    msg += "💡 僅供研究參考，非投資建議。"
-
-    if WEBHOOK_URL:
-        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
+    if WEBHOOK:
+        requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=15)
 
 if __name__ == "__main__":
     run()
