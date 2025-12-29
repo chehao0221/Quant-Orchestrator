@@ -1,0 +1,20 @@
+{
+  "vault_root": "/Quant-Vault",
+
+  "never_delete": [
+    "LOCKED_RAW",
+    "LOCKED_DECISION",
+    "LOG"
+  ],
+
+  "ai_allowed_delete": [
+    "TEMP_CACHE"
+  ],
+
+  "temp_rules": {
+    "max_age_days": 14,
+    "min_free_space_gb": 10
+  },
+
+  "fail_closed": true
+}
