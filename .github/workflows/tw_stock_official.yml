@@ -1,0 +1,16 @@
+name: TW Stock Official
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 台股盤後 +1 小時（UTC 自行已換好）
+  workflow_dispatch:
+
+jobs:
+  tw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run TW stock (Discord only)
+        run: |
+          python repos/Stock-Genius-System/ai_tw_post.py
