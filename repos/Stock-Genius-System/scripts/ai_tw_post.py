@@ -1,51 +1,51 @@
 import os
 import sys
 import json
-import warnings
 import requests
 from datetime import datetime
 from pathlib import Path
+import warnings
 from xgboost import XGBRegressor
 
-# ==================================================
-# Path Fix
-# ==================================================
-BASE_DIR = Path(__file__).resolve().parents[1]
+# ===============================
+# Path bootstrap
+# ===============================
+BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
 from scripts.safe_yfinance import safe_download
 from scripts.guard_check import check_guardian
-from vault.vault_backtest_reader import load_history, summarize_backtest
+from vault.vault_snapshot_writer import write_snapshot
+from vault.vault_pool_writer import write_pool
 
 warnings.filterwarnings("ignore")
 
-# ==================================================
-# Config
-# ==================================================
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
+# ===============================
+# Vault Paths
+# ===============================
+VAULT_ROOT = Path("E:/Quant-Vault/STOCK_DB/TW")
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
 HORIZON = 5
 
-VAULT_ROOT = Path("E:/Quant-Vault")
-VAULT_TW = VAULT_ROOT / "STOCK_DB" / "TW"
-HISTORY_DIR = VAULT_TW / "history"
-HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-
-# ==================================================
-# Utils
-# ==================================================
+# ===============================
 def calc_pivot(df):
     r = df.iloc[-20:]
     h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
     p = (h + l + c) / 3
-    return round(2 * p - h, 2), round(2 * p - l, 2)
+    return round(2*p - h, 2), round(2*p - l, 2)
 
-# ==================================================
+# ===============================
 def run():
-    # Guardian Freeze Check
-    check_guardian(task_type="MARKET")
+    # Guardian 檢查（Freeze 則直接結束）
+    check_guardian("MARKET")
 
+    # 核心監控（可汰舊換新，來源未來可換 Vault）
     core_watch = [
-        "2330.TW", "2317.TW", "2454.TW", "2308.TW", "2412.TW"
+        "2330.TW",
+        "2317.TW",
+        "2454.TW",
+        "2308.TW",
+        "2412.TW",
     ]
 
     data = safe_download(core_watch)
@@ -62,17 +62,19 @@ def run():
                 continue
 
             df["mom20"] = df["Close"].pct_change(20)
-            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
+            df["bias"] = (
+                (df["Close"] - df["Close"].rolling(20).mean())
+                / df["Close"].rolling(20).mean()
+            )
             df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
             df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
 
             train = df.iloc[:-HORIZON].dropna()
-
             model = XGBRegressor(
                 n_estimators=120,
                 max_depth=3,
                 learning_rate=0.05,
-                random_state=42
+                random_state=42,
             )
             model.fit(train[feats], train["target"])
 
@@ -84,7 +86,7 @@ def run():
                 "pred": round(pred, 4),
                 "price": round(df["Close"].iloc[-1], 2),
                 "support": sup,
-                "resistance": res
+                "resistance": res,
             })
         except Exception:
             continue
@@ -92,54 +94,37 @@ def run():
     if not results:
         return
 
-    # ==================================================
-    # Write Vault
-    # ==================================================
-    today = datetime.now().strftime("%Y-%m-%d")
-    vault_file = HISTORY_DIR / f"{today}.json"
-    vault_file.write_text(
-        json.dumps(results, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    # ===============================
+    # Vault 寫入（歷史事實）
+    # ===============================
+    write_snapshot(VAULT_ROOT, results)
 
-    # ==================================================
-    # Discord Message
-    # ==================================================
-    msg = f"📊 台股 AI 進階預測報告（{today}）\n\n"
-
+    # shortlist / core_watch（狀態，不是歷史）
     top5 = sorted(results, key=lambda x: x["pred"], reverse=True)[:5]
-    msg += "🔍 AI 海選 Top 5\n"
+    write_pool(VAULT_ROOT, "shortlist", [r["symbol"] for r in top5])
+    write_pool(VAULT_ROOT, "core_watch", [r["symbol"] for r in results])
+
+    # ===============================
+    # Discord 顯示
+    # ===============================
+    if not WEBHOOK:
+        return
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    msg = f"📊 台股 AI 進階預測報告（{date_str}）\n\n"
+    msg += "🔍 AI 海選 Top 5（今日盤後｜成交量前 500）\n\n"
+
     for r in top5:
-        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
+        conf = int(min(max(abs(r["pred"]) * 100, 5), 95))
+        emoji = "🟢" if conf >= 60 else "🟡" if conf >= 40 else "🔴"
         msg += (
-            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
+            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%} ｜信心度 {conf}%\n"
+            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n\n"
         )
 
-    msg += "\n👁 核心監控清單（固定顯示）\n"
-    for r in results:
-        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
-        msg += (
-            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
-        )
+    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
 
-    records = load_history(VAULT_TW, days=5)
-    summary = summarize_backtest(records)
-
-    if summary:
-        msg += (
-            "\n📊 台股｜近 5 日回測結算（Vault）\n\n"
-            f"樣本數：{summary['count']}\n"
-            f"正報酬比例：{summary['win_rate']}%\n"
-            f"平均預期：{summary['avg_pred']:+.2%}\n"
-            f"最差預期：{summary['max_drawdown']:+.2%}\n"
-        )
-
-    msg += "\n💡 僅供研究參考，非投資建議。"
-
-    if WEBHOOK_URL:
-        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
+    requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=15)
 
 if __name__ == "__main__":
     run()
