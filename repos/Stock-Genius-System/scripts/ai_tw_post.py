@@ -15,9 +15,12 @@ warnings.filterwarnings("ignore")
 # ==================================================
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPT_DIR.parent
+ROOT_DIR = BASE_DIR.parents[2]
 sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(ROOT_DIR))
 
 from safe_yfinance import safe_download
+from vault.core_watch_manager import update_core_watch
 
 # ==================================================
 # Paths
@@ -26,12 +29,13 @@ DATA_DIR = BASE_DIR / "data"
 HISTORY_FILE = DATA_DIR / "tw_history.csv"
 EXPLORER_POOL_FILE = DATA_DIR / "explorer_pool_tw.json"
 
+CORE_STATE_FILE = DATA_DIR / "core_watch_tw.json"
+
+GUARDIAN_STATE = ROOT_DIR / "shared" / "guardian_state.json"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
 
-# Guardian State（只讀）
-GUARDIAN_STATE = BASE_DIR.parents[2] / "shared" / "guardian_state.json"
-
 HORIZON = 5
+MAX_CORE = 7
 
 # ==================================================
 def guardian_freeze():
@@ -43,17 +47,16 @@ def guardian_freeze():
     except Exception:
         return False
 
-# ==================================================
 def calc_pivot(df):
     r = df.iloc[-20:]
     h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
     p = (h + l + c) / 3
     return round(2 * p - h, 2), round(2 * p - l, 2)
 
-def confidence_color(score: float):
-    if score >= 0.6:
+def confidence_emoji(conf):
+    if conf >= 0.6:
         return "🟢"
-    elif score >= 0.4:
+    elif conf >= 0.4:
         return "🟡"
     else:
         return "🔴"
@@ -61,37 +64,35 @@ def confidence_color(score: float):
 # ==================================================
 def run():
     if guardian_freeze():
-        print("[Guardian] L4+ Freeze → Skip TW AI post")
+        print("[Guardian] L4+ Freeze → Skip TW AI")
         return
 
-    # 台股核心監控
-    core_watch = [
-        "2330.TW",  # 台積電
-        "2317.TW",  # 鴻海
-        "2454.TW",  # 聯發科
-        "2308.TW",  # 台達電
-        "2412.TW",  # 中華電
-    ]
+    # === 核心候選（成交量前 500 已由 Explorer 準備）===
+    if not EXPLORER_POOL_FILE.exists():
+        print("[Explorer] pool missing")
+        return
 
-    data = safe_download(core_watch)
+    explorer_pool = json.loads(EXPLORER_POOL_FILE.read_text()).get("symbols", [])[:500]
+
+    data = safe_download([f"{s}.TW" for s in explorer_pool])
     if data is None:
-        print("[INFO] TW AI skipped (data failure)")
+        print("[Data] download failed")
         return
 
     feats = ["mom20", "bias", "vol_ratio"]
-    results = {}
+    today_results = []
 
-    for s in core_watch:
+    for sym in explorer_pool:
+        s = f"{sym}.TW"
+        if s not in data:
+            continue
         try:
             df = data[s].dropna()
             if len(df) < 120:
                 continue
 
             df["mom20"] = df["Close"].pct_change(20)
-            df["bias"] = (
-                (df["Close"] - df["Close"].rolling(20).mean())
-                / df["Close"].rolling(20).mean()
-            )
+            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
             df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
             df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
 
@@ -106,80 +107,69 @@ def run():
 
             pred = float(model.predict(df[feats].iloc[-1:])[0])
             sup, res = calc_pivot(df)
+            conf = min(0.9, max(0.1, abs(pred) * 8))
 
-            confidence = min(0.9, max(0.1, abs(pred) * 8))
-
-            results[s] = {
+            today_results.append({
+                "symbol": sym,
                 "pred": pred,
                 "price": round(df["Close"].iloc[-1], 2),
                 "sup": sup,
                 "res": res,
-                "conf": confidence,
-            }
+                "conf": conf,
+            })
         except Exception:
             continue
 
-    if not results:
+    if not today_results:
         return
 
-    # ==================================================
-    # Discord Message
-    # ==================================================
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = f"📊 台股 AI 進階預測報告（{date_str}）\n\n"
+    # === Top5 ===
+    top5 = sorted(today_results, key=lambda x: x["pred"], reverse=True)[:5]
+    for s in top5:
+        s["is_top5"] = True
+        s["core_score"] = 1.0
+        s["days_since_active"] = 0
 
-    # 🔍 Explorer Top 5
-    if EXPLORER_POOL_FILE.exists():
-        try:
-            pool = json.loads(EXPLORER_POOL_FILE.read_text())
-            explorer = pool.get("symbols", [])[:200]
+    # === Core Watch ===
+    core_prev = []
+    if CORE_STATE_FILE.exists():
+        core_prev = json.loads(CORE_STATE_FILE.read_text())
 
-            hits = [(s, results[s]) for s in explorer if s in results]
-            top5 = sorted(hits, key=lambda x: x[1]["pred"], reverse=True)[:5]
+    core_updated = update_core_watch(core_prev, top5)
+    CORE_STATE_FILE.write_text(json.dumps(core_updated, ensure_ascii=False, indent=2))
 
-            if top5:
-                msg += "🔍 AI 海選 Top 5（盤後）\n\n"
-                for s, r in top5:
-                    emoji = confidence_color(r["conf"])
-                    sym = s.replace(".TW", "")
-                    msg += (
-                        f"{emoji} {sym}｜預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
-                        f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n\n"
-                    )
-        except Exception:
-            pass
+    # === Discord ===
+    msg = f"📊 台股 AI 進階預測報告（{datetime.now().date()}）\n\n"
 
-    # 👁 Core Watch
-    msg += "👁 核心監控（固定顯示）\n\n"
-    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
-        emoji = confidence_color(r["conf"])
-        sym = s.replace(".TW", "")
+    msg += "🔍 AI 海選 Top 5（盤後）\n\n"
+    for s in top5:
         msg += (
-            f"{emoji} {sym}｜預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
-            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n\n"
+            f"{confidence_emoji(s['conf'])} {s['symbol']}｜預估 {s['pred']:+.2%} ｜信心度 {int(s['conf']*100)}%\n"
+            f"└ 現價 {s['price']}（支撐 {s['sup']} / 壓力 {s['res']}）\n\n"
         )
 
-    # 📊 5 日回測
-    if HISTORY_FILE.exists():
-        try:
-            hist = pd.read_csv(HISTORY_FILE).tail(5)
-            if not hist.empty:
-                win = hist[hist["pred_ret"] > 0]
-                msg += (
-                    "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
-                    f"交易筆數：{len(hist)}\n"
-                    f"命中率：{len(win)/len(hist)*100:.1f}%\n"
-                    f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
-                    f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
-                )
-        except Exception:
-            pass
+    msg += "👁 核心監控清單（長期｜可汰舊換新）\n\n"
+    for s in core_updated:
+        msg += (
+            f"{confidence_emoji(s.get('conf', 0.5))} {s['symbol']}\n"
+        )
 
-    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
+    if HISTORY_FILE.exists():
+        hist = pd.read_csv(HISTORY_FILE).tail(5)
+        if not hist.empty:
+            win = hist[hist["pred_ret"] > 0]
+            msg += (
+                "📊 台股｜近 5 日回測結算（歷史觀測）\n\n"
+                f"交易筆數：{len(hist)}\n"
+                f"命中率：{len(win)/len(hist)*100:.1f}%\n"
+                f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
+                f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
+            )
+
+    msg += "💡 僅供研究參考，非投資建議。"
 
     if WEBHOOK_URL:
         requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
 
-# ==================================================
 if __name__ == "__main__":
     run()
