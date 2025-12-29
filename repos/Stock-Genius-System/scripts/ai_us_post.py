@@ -11,7 +11,7 @@ from xgboost import XGBRegressor
 warnings.filterwarnings("ignore")
 
 # ==================================================
-# Path Fix（不再用 scripts.xxx）
+# Path Fix
 # ==================================================
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASE_DIR = SCRIPT_DIR.parent
@@ -64,7 +64,16 @@ def run():
         print("[Guardian] L4+ Freeze → Skip US AI post")
         return
 
-    core_watch = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
+    # 美股核心監控（可由 Explorer / Vault 未來接管）
+    core_watch = [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "TSLA",
+    ]
 
     data = safe_download(core_watch)
     if data is None:
