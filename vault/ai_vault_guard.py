@@ -1,23 +1,40 @@
-from pathlib import Path
 import json
-from tools.vault_executor import execute_cleanup
+from pathlib import Path
+from datetime import datetime
+from tools.vault_ai_judge import is_cold
 
 class AIVaultGuard:
-    def __init__(self, policy_path: str):
+    def __init__(self, policy_path):
         with open(policy_path, "r", encoding="utf-8") as f:
-            self.policy = json.load(f)
+            self.cfg = json.load(f)
 
-        self.root = Path(self.policy["vault_root"])
+        self.root = Path(self.cfg["vault_root"])
+        self.cold_days = self.cfg["temp_rules"]["cold_days"]
 
-    def scan_and_clean(self):
-        for zone in self.policy["ai_allowed_delete"]:
-            base = self.root / zone
+        self.allowed = self.cfg["ai_allowed_delete"]
+        self.protected = self.cfg["protected_hot_zones"]
+
+    def _is_protected(self, path: Path):
+        return any(p in path.parts for p in self.protected)
+
+    def execute_cleanup(self):
+        deleted = []
+
+        for rel in self.allowed:
+            base = self.root / rel
             if not base.exists():
                 continue
 
             for file in base.rglob("*.json"):
-                execute_cleanup(
-                    file_path=file,
-                    last_read_days=999,
-                    top5_count=0
-                )
+                if self._is_protected(file):
+                    continue
+
+                mtime = datetime.fromtimestamp(file.stat().st_mtime)
+                if is_cold(mtime, self.cold_days):
+                    try:
+                        file.unlink()
+                        deleted.append(str(file))
+                    except Exception:
+                        pass
+
+        return deleted
