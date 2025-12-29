@@ -1,24 +1,21 @@
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
 
-VAULT_ROOT = Path("E:/Quant-Vault/LOCKED_RAW/backtest")
+VAULT = Path("E:/Quant-Vault/LOCKED_RAW/backtest")
 
-def read_recent_backtest(market: str, days: int = 5):
-    market_dir = VAULT_ROOT / market
-    if not market_dir.exists():
+def read_last_n_days(market: str, days: int = 5):
+    base = VAULT / market
+    if not base.exists():
         return None
 
-    files = sorted(market_dir.glob("*.json"), reverse=True)
+    files = sorted(base.glob("*.json"), reverse=True)
     records = []
 
     for f in files:
         data = json.loads(f.read_text(encoding="utf-8"))
-        for sym, r in data["symbols"].items():
-            if r["hit"] is None:
-                continue
-            records.append(r)
-
+        for r in data["symbols"].values():
+            if r["hit"] is not None:
+                records.append(r)
         if len(records) >= days:
             break
 
@@ -32,7 +29,7 @@ def read_recent_backtest(market: str, days: int = 5):
 
     return {
         "trades": total,
-        "hit_rate": len(wins) / total * 100,
-        "avg_ret": avg_ret,
-        "max_dd": max_dd
+        "hit_rate": round(len(wins) / total * 100, 1),
+        "avg_ret": round(avg_ret * 100, 2),
+        "max_dd": round(max_dd * 100, 2),
     }
