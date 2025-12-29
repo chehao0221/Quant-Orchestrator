@@ -1,20 +1,20 @@
-- name: Checkout repo
-  uses: actions/checkout@v4
-  with:
-    clean: false
 name: US Stock Official
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # 美股盤後 +1 小時
+    - cron: '0 21 * * 1-5'   # 美股盤後 1 小時（你原本的）
   workflow_dispatch:
 
 jobs:
-  us:
+  us-stock:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Run US stock (Discord only)
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Run US Stock AI
         run: |
           python repos/Stock-Genius-System/ai_us_post.py
