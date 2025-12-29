@@ -1,9 +1,21 @@
-VAULT_SCHEMA_VERSION = 1
+# Vault Backtest Schema（唯一真相）
 
-REQUIRED_FIELDS = {
-    "symbol": str,
-    "pred": float,
-    "price": float,
-    "support": float,
-    "resistance": float,
+BACKTEST_SCHEMA = {
+    "date": str,              # 預測產生日
+    "market": str,            # TW / US
+    "horizon": int,           # 預測天數（5）
+    "symbols": {
+        # "2330.TW": { ... }
+    }
+}
+
+SYMBOL_SCHEMA = {
+    "pred_date": str,
+    "pred_price": float,
+    "pred_ret": float,
+
+    # N 天後才補
+    "actual_price": float | None,
+    "actual_ret": float | None,
+    "hit": bool | None
 }
