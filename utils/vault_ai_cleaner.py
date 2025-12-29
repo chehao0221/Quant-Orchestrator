@@ -1,4 +1,7 @@
-from vault.run_vault_cleanup import run_cleanup
+import subprocess
 
-if __name__ == "__main__":
-    run_cleanup()
+def run_cleanup():
+    subprocess.run(
+        ["python", "vault/run_vault_cleanup.py"],
+        check=False
+    )
