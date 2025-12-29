@@ -1,35 +1,28 @@
-from pathlib import Path
 from datetime import datetime, timedelta
 
-N_DAYS = 180
-K_TOP5 = 30
+COLD_DAYS = 180
 
-def ai_should_delete(
-    path: Path,
-    *,
-    last_read_days: int,
-    in_universe: bool,
-    in_recent_top5: bool,
-    in_core_watch: bool,
-    has_newer_version: bool
-) -> bool:
+def ai_should_delete(meta: dict) -> bool:
     """
-    全部成立才刪
+    meta = {
+      "last_read": datetime,
+      "is_in_universe": bool,
+      "is_in_top5": bool,
+      "is_in_core": bool,
+      "has_newer": bool
+    }
     """
 
-    if last_read_days <= N_DAYS:
+    if meta["is_in_top5"]:
         return False
 
-    if in_universe:
+    if meta["is_in_core"]:
         return False
 
-    if in_recent_top5:
+    if not meta["has_newer"]:
         return False
 
-    if in_core_watch:
-        return False
-
-    if not has_newer_version:
+    if datetime.now() - meta["last_read"] < timedelta(days=COLD_DAYS):
         return False
 
     return True
