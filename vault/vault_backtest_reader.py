@@ -1,43 +1,107 @@
-import json
 from pathlib import Path
-from statistics import mean
+from datetime import datetime, timedelta
+import json
+from typing import List, Dict
 
-def load_history(vault_market_path: Path, days: int = 5):
+
+# ==================================================
+# Vault Backtest Reader
+# ==================================================
+# 職責：
+# - 只讀 Vault
+# - 不判斷風控
+# - 不刪資料
+# - 不猜不存在的欄位
+# ==================================================
+
+
+def _is_date_filename(name: str) -> bool:
+    try:
+        datetime.strptime(name.replace(".json", ""), "%Y-%m-%d")
+        return True
+    except Exception:
+        return False
+
+
+def load_history(
+    market_root: Path,
+    days: int = 5
+) -> List[Dict]:
     """
-    讀取最近 N 日 Vault history JSON
+    從 Vault history 讀取最近 N 天資料
+
+    market_root:
+        E:/Quant-Vault/STOCK_DB/TW
+        E:/Quant-Vault/STOCK_DB/US
+
+    回傳：
+        List[{
+            "date": "YYYY-MM-DD",
+            "symbol": str,
+            "pred": float
+        }]
     """
-    history_dir = vault_market_path / "history"
+
+    history_dir = market_root / "history"
     if not history_dir.exists():
         return []
 
-    files = sorted(history_dir.glob("*.json"), reverse=True)[:days]
-    records = []
+    today = datetime.now().date()
+    start_date = today - timedelta(days=days * 2)  # buffer 避開假日
 
-    for f in files:
+    records: List[Dict] = []
+
+    for file in sorted(history_dir.iterdir(), reverse=True):
+        if not file.name.endswith(".json"):
+            continue
+        if not _is_date_filename(file.name):
+            continue
+
+        file_date = datetime.strptime(
+            file.name.replace(".json", ""), "%Y-%m-%d"
+        ).date()
+
+        if file_date < start_date:
+            break
+
         try:
-            daily = json.loads(f.read_text(encoding="utf-8"))
-            records.extend(daily)
+            data = json.loads(file.read_text(encoding="utf-8"))
         except Exception:
             continue
+
+        for item in data:
+            if "pred" not in item or "symbol" not in item:
+                continue
+
+            records.append({
+                "date": file_date.isoformat(),
+                "symbol": item["symbol"],
+                "pred": float(item["pred"])
+            })
+
+        if len({r["date"] for r in records}) >= days:
+            break
 
     return records
 
 
-def summarize_backtest(records: list):
+def summarize_backtest(records: List[Dict]) -> Dict | None:
     """
-    回測摘要（只做統計，不下判斷）
+    根據 Vault 歷史資料做「觀測性摘要」
+    ❗ 不是真實損益
+    ❗ 不假設實際交易
     """
+
     if not records:
         return None
 
-    preds = [r["pred"] for r in records if "pred" in r]
+    preds = [r["pred"] for r in records]
 
-    if not preds:
-        return None
+    win = [p for p in preds if p > 0]
 
     return {
         "count": len(preds),
-        "avg_pred": round(mean(preds), 4),
-        "win_rate": round(len([p for p in preds if p > 0]) / len(preds) * 100, 1),
+        "win_rate": round(len(win) / len(preds) * 100, 1),
+        "avg_pred": round(sum(preds) / len(preds), 4),
         "max_drawdown": round(min(preds), 4),
     }
