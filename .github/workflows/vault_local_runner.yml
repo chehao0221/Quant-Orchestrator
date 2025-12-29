@@ -1,17 +1,15 @@
 name: vault-clean
-
 on:
   schedule:
-    - cron: "0 3 * * *" 
+    - cron: "0 3 * * *"   # 時間你不用再管
   workflow_dispatch:
 
 jobs:
-  vault-clean:
+  clean:
     runs-on: self-hosted
-
     steps:
+      - uses: actions/checkout@v4
       - name: Run Vault Cleanup
         shell: powershell
         run: |
-          cd D:\actions-runner\_work\Quant-Orchestrator\Quant-Orchestrator
-          python -m vault.run_vault_cleanup
+          python vault/run_vault_cleanup.py
