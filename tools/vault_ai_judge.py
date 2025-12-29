@@ -1,20 +1,53 @@
+# Quant-Orchestrator/tools/vault_ai_judge.py
+import time
 from pathlib import Path
-from datetime import datetime, timedelta
+from vault_policy import classify_stock_path
 
-MAX_AGE_DAYS = 7   # 你要改，只改這裡
+SECONDS_PER_DAY = 86400
 
-def ai_should_delete(file_path: Path) -> bool:
+# 你指定的參數
+N_DAYS = 180
+K_RECENT_TOP5 = 30
+RECENT_READ_PROTECT_DAYS = 7
+TOP5_HISTORY_PROTECT_TIMES = 3
+
+def ai_should_delete(
+    file_path: Path,
+    *,
+    last_read_ts: float | None,
+    top5_count: int,
+    is_market_event: bool,
+):
     """
-    極保守 AI：
-    - 只看時間
-    - 不看內容
-    - 不做學習
+    全部成立才刪
     """
 
-    if not file_path.is_file():
+    category = classify_stock_path(file_path)
+
+    # ❶ protected 區幾乎不刪
+    if category == "protected":
         return False
 
-    mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
-    age = datetime.now() - mtime
+    # ❷ 不是冷資料 → 不刪
+    if category != "cold":
+        return False
 
-    return age > timedelta(days=MAX_AGE_DAYS)
+    now = time.time()
+
+    # ❸ 超過 N 天未被讀取
+    if last_read_ts and (now - last_read_ts) < N_DAYS * SECONDS_PER_DAY:
+        return False
+
+    # ❹ 最近 K 次 Top5 出現過
+    if top5_count >= K_RECENT_TOP5:
+        return False
+
+    # ❺ 曾多次進 Top5（隱性保險）
+    if top5_count >= TOP5_HISTORY_PROTECT_TIMES:
+        return False
+
+    # ❻ 市場異常資料 → 暫緩刪除
+    if is_market_event:
+        return False
+
+    return True
