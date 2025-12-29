@@ -27,10 +27,10 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 L4_ACTIVE_FILE = os.path.join(DATA_DIR, "l4_active.flag")
-EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_tw.json")
-HISTORY_FILE = os.path.join(DATA_DIR, "tw_history.csv")
+EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_us.json")
+HISTORY_FILE = os.path.join(DATA_DIR, "us_history.csv")
 
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_US", "").strip()
 HORIZON = 5
 
 if os.path.exists(L4_ACTIVE_FILE):
@@ -45,17 +45,20 @@ def calc_pivot(df):
 
 # ==================================================
 def run():
+    # 🇺🇸 核心監控（Magnificent 7）
     core_watch = [
-        "2330.TW",
-        "2317.TW",
-        "2454.TW",
-        "2308.TW",
-        "2412.TW",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "TSLA",
     ]
 
     data = safe_download(core_watch)
     if data is None:
-        print("[INFO] TW AI skipped (data failure)")
+        print("[INFO] US AI skipped (data failure)")
         return
 
     feats = ["mom20", "bias", "vol_ratio"]
@@ -98,14 +101,13 @@ def run():
         return
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = f"📊 台股 AI 預測報告 ({date_str})\n\n"
+    msg = f"📊 美股 AI 預測報告 ({date_str})\n\n"
 
     msg += "👁 核心監控（固定顯示）\n"
     for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
         emoji = "📈" if r["pred"] > 0 else "📉"
-        sym = s.replace(".TW", "")
         msg += (
-            f"{emoji} {sym}：{r['pred']:+.2%}\n"
+            f"{emoji} {s}：{r['pred']:+.2%}\n"
             f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
         )
 
