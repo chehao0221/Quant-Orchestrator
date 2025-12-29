@@ -1,40 +1,32 @@
-import json
 from pathlib import Path
-from datetime import datetime
-from tools.vault_ai_judge import is_cold
+from tools.vault_ai_judge import ai_should_delete
+from tools.vault_executor import safe_delete
 
-class AIVaultGuard:
-    def __init__(self, policy_path):
-        with open(policy_path, "r", encoding="utf-8") as f:
-            self.cfg = json.load(f)
+VAULT = Path(r"E:\Quant-Vault\STOCK_DB")
 
-        self.root = Path(self.cfg["vault_root"])
-        self.cold_days = self.cfg["temp_rules"]["cold_days"]
+def scan_market(market: str):
+    base = VAULT / market
 
-        self.allowed = self.cfg["ai_allowed_delete"]
-        self.protected = self.cfg["protected_hot_zones"]
+    universe = base / "universe"
+    shortlist = base / "shortlist"
+    core = base / "core_watch"
+    history = base / "history"
+    cache = base / "cache"
 
-    def _is_protected(self, path: Path):
-        return any(p in path.parts for p in self.protected)
+    for folder in [universe, history, cache]:
+        if not folder.exists():
+            continue
 
-    def execute_cleanup(self):
-        deleted = []
+        for f in folder.glob("*.json"):
+            # ⚠️ 這裡的資訊你之後可以接真實 metadata
+            delete = ai_should_delete(
+                f,
+                last_read_days=999,
+                in_universe=f.parent == universe,
+                in_recent_top5=False,
+                in_core_watch=False,
+                has_newer_version=True
+            )
 
-        for rel in self.allowed:
-            base = self.root / rel
-            if not base.exists():
-                continue
-
-            for file in base.rglob("*.json"):
-                if self._is_protected(file):
-                    continue
-
-                mtime = datetime.fromtimestamp(file.stat().st_mtime)
-                if is_cold(mtime, self.cold_days):
-                    try:
-                        file.unlink()
-                        deleted.append(str(file))
-                    except Exception:
-                        pass
-
-        return deleted
+            if delete:
+                safe_delete(f)
