@@ -1,15 +1,12 @@
-BACKTEST_SYMBOL_SCHEMA = {
-    "pred_date": str,
-    "pred_price": float,
-    "pred_ret": float,
-    "actual_price": float | None,
-    "actual_ret": float | None,
-    "hit": bool | None,
-}
+from dataclasses import dataclass
+from typing import List
 
-BACKTEST_DAY_SCHEMA = {
-    "date": str,
-    "market": str,
-    "horizon": int,
-    "symbols": dict,  # symbol -> BACKTEST_SYMBOL_SCHEMA
-}
+@dataclass
+class VaultBacktestRecord:
+    symbol: str
+    market: str
+    date: str
+    pred_ret: float
+    confidence: float
+    source: str            # AI_TW / AI_US
+    used_by: List[str]
