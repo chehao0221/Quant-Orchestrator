@@ -1,18 +1,19 @@
-name: Vault Local Runner Cleanup
+name: Vault Local Cleanup
 
 on:
   schedule:
-    - cron: "30 3 * * *"   # 每天一次（隨便，反正只在本地 runner 生效）
+    - cron: "30 2 * * *"   # 每天一次（時間你不用再管）
   workflow_dispatch:
 
 jobs:
-  vault-cleanup:
+  vault-clean:
     runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run Vault AI Cleanup
-        shell: python
+        shell: powershell
         run: |
-          python vault/run_vault_cleanup.py
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          python Quant-Orchestrator/vault/run_vault_cleanup.py
