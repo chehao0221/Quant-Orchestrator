@@ -1,77 +1,55 @@
-import json
+from datetime import datetime
 from pathlib import Path
-from datetime import date, datetime, timedelta
+import json
 
-VAULT_DIR = Path(__file__).resolve().parents[1] / "vault_data"
-VAULT_DIR.mkdir(exist_ok=True)
+CORE_LIMIT = 7
+DECAY_DAYS = 30
 
-DECAY_DAYS = 14          # 衰退半衰期
-MAX_CORE = 7             # 固定標最多 7 檔
+CORE_PATH = Path("E:/Quant-Vault/STOCK_DB/core_watch.json")
+HISTORY_PATH = Path("E:/Quant-Vault/STOCK_DB/history_rank.json")
 
-
-def _decay(weight: float, days: int) -> float:
-    return weight * (0.5 ** (days / DECAY_DAYS))
-
-
-def load_core(market: str) -> list:
-    path = VAULT_DIR / f"core_watch_{market.lower()}.json"
+def load_json(path):
     if not path.exists():
-        return []
-    return json.loads(path.read_text())
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
 
+def save_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def save_core(market: str, core: list):
-    path = VAULT_DIR / f"core_watch_{market.lower()}.json"
-    path.write_text(json.dumps(core, ensure_ascii=False, indent=2))
+def decay_score(last_seen: str):
+    days = (datetime.utcnow() - datetime.fromisoformat(last_seen)).days
+    return max(0.3, 1 - days / DECAY_DAYS)
 
-
-def update_core_watch(
-    market: str,
-    today_hits: list[str],
-    explorer_hits: list[str]
-):
+def update_core_watch(today_rank: list):
     """
-    today_hits     → 今天實際進入核心顯示的股票
-    explorer_hits  → 今日 Top5 / Explorer 命中
+    today_rank: [(symbol, score), ...] 已排序
     """
+    core = load_json(CORE_PATH)
+    history = load_json(HISTORY_PATH)
 
-    today = date.today()
-    core = load_core(market)
-    core_map = {c["symbol"]: c for c in core}
+    updated = {}
 
-    # 1️⃣ 先對所有既有核心做衰退
-    for c in core:
-        last = datetime.strptime(c["last_active"], "%Y-%m-%d").date()
-        days = (today - last).days
-        c["weight"] = round(_decay(c["weight"], days), 4)
+    # 先保留舊 core（但有衰退）
+    for sym, meta in core.items():
+        updated[sym] = meta
+        updated[sym]["weight"] *= decay_score(meta["last_seen"])
 
-    # 2️⃣ 今日命中 → 加權
-    for sym in set(today_hits + explorer_hits):
-        if sym not in core_map:
-            core_map[sym] = {
-                "symbol": sym,
-                "market": market,
-                "weight": 1.0,
-                "hit_count": 1,
-                "miss_count": 0,
-                "last_active": today.isoformat(),
+    # 補位（優先歷史 Top5，再來今日最熱）
+    for sym, score in today_rank:
+        if sym in updated:
+            updated[sym]["last_seen"] = datetime.utcnow().isoformat()
+            updated[sym]["weight"] = max(updated[sym]["weight"], score)
+        elif len(updated) < CORE_LIMIT:
+            updated[sym] = {
+                "weight": score,
+                "last_seen": datetime.utcnow().isoformat()
             }
-        else:
-            core_map[sym]["weight"] += 1.0
-            core_map[sym]["hit_count"] += 1
-            core_map[sym]["last_active"] = today.isoformat()
 
-    # 3️⃣ 未命中者 miss +1
-    for c in core_map.values():
-        if c["symbol"] not in today_hits:
-            c["miss_count"] += 1
+    # 只保留前 CORE_LIMIT
+    final = dict(
+        sorted(updated.items(), key=lambda x: x[1]["weight"], reverse=True)[:CORE_LIMIT]
+    )
 
-    # 4️⃣ 依權重排序，只留前 MAX_CORE
-    new_core = sorted(
-        core_map.values(),
-        key=lambda x: x["weight"],
-        reverse=True
-    )[:MAX_CORE]
-
-    save_core(market, new_core)
-    return new_core
+    save_json(CORE_PATH, final)
+    return final
