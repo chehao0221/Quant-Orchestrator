@@ -3,48 +3,35 @@ import sys
 import json
 import warnings
 import requests
-import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from xgboost import XGBRegressor
 
-# ===== Path Fix =====
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE_DIR)
+# ==================================================
+# Path Fix
+# ==================================================
+BASE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE_DIR))
 
 from scripts.safe_yfinance import safe_download
 from scripts.guard_check import check_guardian
+from vault.vault_backtest_reader import load_history, summarize_backtest
 
 warnings.filterwarnings("ignore")
 
 # ==================================================
-# Guardian check（市場任務）
+# Config
 # ==================================================
-check_guardian("MARKET")
-
-# ==================================================
-# Basic Paths
-# ==================================================
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-
-EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_tw.json")
-HISTORY_CSV = os.path.join(DATA_DIR, "tw_history.csv")
-
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
-
-# ==================================================
-# Quant-Vault Paths（唯一存檔真相）
-# ==================================================
-VAULT_ROOT = Path(os.getenv("QUANT_VAULT", r"E:\Quant-Vault"))
-VAULT_TW = VAULT_ROOT / "STOCK_DB" / "TW"
-
-for d in ["universe", "shortlist", "core_watch", "history", "cache"]:
-    (VAULT_TW / d).mkdir(parents=True, exist_ok=True)
-
-TODAY = datetime.now().strftime("%Y-%m-%d")
 HORIZON = 5
 
+VAULT_ROOT = Path("E:/Quant-Vault")
+VAULT_TW = VAULT_ROOT / "STOCK_DB" / "TW"
+HISTORY_DIR = VAULT_TW / "history"
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+# ==================================================
+# Utils
 # ==================================================
 def calc_pivot(df):
     r = df.iloc[-20:]
@@ -54,14 +41,19 @@ def calc_pivot(df):
 
 # ==================================================
 def run():
-    core_watch = ["2330.TW", "2317.TW", "2454.TW", "2308.TW", "2412.TW"]
+    # Guardian Freeze Check
+    check_guardian(task_type="MARKET")
+
+    core_watch = [
+        "2330.TW", "2317.TW", "2454.TW", "2308.TW", "2412.TW"
+    ]
 
     data = safe_download(core_watch)
     if data is None:
         return
 
     feats = ["mom20", "bias", "vol_ratio"]
-    results = {}
+    results = []
 
     for s in core_watch:
         try:
@@ -75,24 +67,25 @@ def run():
             df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
 
             train = df.iloc[:-HORIZON].dropna()
+
             model = XGBRegressor(
                 n_estimators=120,
                 max_depth=3,
                 learning_rate=0.05,
-                random_state=42,
+                random_state=42
             )
             model.fit(train[feats], train["target"])
 
             pred = float(model.predict(df[feats].iloc[-1:])[0])
             sup, res = calc_pivot(df)
 
-            results[s] = {
+            results.append({
                 "symbol": s.replace(".TW", ""),
                 "pred": round(pred, 4),
                 "price": round(df["Close"].iloc[-1], 2),
                 "support": sup,
-                "resistance": res,
-            }
+                "resistance": res
+            })
         except Exception:
             continue
 
@@ -100,42 +93,50 @@ def run():
         return
 
     # ==================================================
-    # Explorer Top5
+    # Write Vault
     # ==================================================
-    top5 = []
-    if os.path.exists(EXPLORER_POOL_FILE):
-        pool = json.load(open(EXPLORER_POOL_FILE, "r", encoding="utf-8"))
-        symbols = pool.get("symbols", [])
-        hits = [results[s] for s in results if f"{results[s]['symbol']}.TW" in symbols]
-        top5 = sorted(hits, key=lambda x: x["pred"], reverse=True)[:5]
-
-    # ==================================================
-    # Write Quant-Vault
-    # ==================================================
-    (VAULT_TW / "shortlist" / f"{TODAY}.json").write_text(
-        json.dumps(top5, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    (VAULT_TW / "history" / f"{TODAY}.json").write_text(
-        json.dumps(list(results.values()), ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    today = datetime.now().strftime("%Y-%m-%d")
+    vault_file = HISTORY_DIR / f"{today}.json"
+    vault_file.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2),
+        encoding="utf-8"
     )
 
     # ==================================================
     # Discord Message
     # ==================================================
-    msg = f"📊 台股 AI 進階預測報告（{TODAY}）\n\n"
-    msg += "🔍 AI 海選 Top 5（今日盤後｜成交量前 500）\n\n"
+    msg = f"📊 台股 AI 進階預測報告（{today}）\n\n"
 
+    top5 = sorted(results, key=lambda x: x["pred"], reverse=True)[:5]
+    msg += "🔍 AI 海選 Top 5\n"
     for r in top5:
-        emoji = "🟢" if r["pred"] > 0.02 else "🟡" if r["pred"] > 0 else "🔴"
+        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
         msg += (
             f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
-            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n\n"
+            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
         )
 
-    msg += "💡 模型為機率推估，僅供研究參考，非投資建議。"
+    msg += "\n👁 核心監控清單（固定顯示）\n"
+    for r in results:
+        emoji = "🟢" if r["pred"] > 0.01 else "🟡" if r["pred"] > 0 else "🔴"
+        msg += (
+            f"{emoji} {r['symbol']}｜預估 {r['pred']:+.2%}\n"
+            f"└ 現價 {r['price']}（支撐 {r['support']} / 壓力 {r['resistance']}）\n"
+        )
+
+    records = load_history(VAULT_TW, days=5)
+    summary = summarize_backtest(records)
+
+    if summary:
+        msg += (
+            "\n📊 台股｜近 5 日回測結算（Vault）\n\n"
+            f"樣本數：{summary['count']}\n"
+            f"正報酬比例：{summary['win_rate']}%\n"
+            f"平均預期：{summary['avg_pred']:+.2%}\n"
+            f"最差預期：{summary['max_drawdown']:+.2%}\n"
+        )
+
+    msg += "\n💡 僅供研究參考，非投資建議。"
 
     if WEBHOOK_URL:
         requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
