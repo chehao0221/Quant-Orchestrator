@@ -3,9 +3,17 @@
 # ❌ 不交易 ❌ 不寫 LOCKED_* ❌ 不碰 Guardian 決策
 
 import os
+import sys
 from datetime import datetime
 
-from vault_root_guard import assert_vault_ready
+# ===== 強制加入專案根目錄（GitHub Actions 必需） =====
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../../")
+)
+sys.path.insert(0, PROJECT_ROOT)
+# =====================================================
+
+from utils.vault_root_guard import assert_vault_ready
 from guard_check import guardian_freeze_check
 from performance_discord_report import send_ai_report
 
