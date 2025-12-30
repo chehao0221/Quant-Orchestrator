@@ -1,28 +1,23 @@
-from typing import TypedDict, List, Literal
-from datetime import datetime
+import json
+from pathlib import Path
 
-Market = Literal["TW", "US"]
+# 定義 Vault 資料結構
+class VaultSchema:
+    def __init__(self, schema_path):
+        self.schema_path = schema_path
+        self.schema = {}
 
-class StockHistory(TypedDict):
-    symbol: str
-    market: Market
+        if Path(schema_path).exists():
+            with open(schema_path, 'r') as f:
+                self.schema = json.load(f)
 
-    # 次數 / 表現
-    appear_count: int
-    hit_count: int
-    avg_pred_ret: float
+    def save(self):
+        with open(self.schema_path, 'w') as f:
+            json.dump(self.schema, f, indent=4)
 
-    # 時間
-    first_seen: str
-    last_seen: str
-    last_hit: str | None
+    def update_schema(self, data: dict):
+        self.schema.update(data)
+        self.save()
 
-    # 權重
-    base_weight: float        # 原始權重
-    decay_weight: float       # 衰退後權重（AI 用）
-    importance: Literal["CORE", "EXPLORER"]
-
-class VaultState(TypedDict):
-    version: int
-    updated_at: str
-    stocks: List[StockHistory]
+    def get_schema(self):
+        return self.schema
