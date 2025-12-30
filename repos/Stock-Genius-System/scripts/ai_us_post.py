@@ -1,94 +1,78 @@
-"""
-美股 AI 最終預測與系統審計發送器（封頂最終版）
-
-與 ai_tw_post.py 完全對稱，僅市場不同
-"""
+# 美股 AI 最終預測與系統審計發送器（封頂最終版）
+# ❌ 不交易 ❌ 不寫 LOCKED_* ❌ 不碰 Guardian 決策
 
 import os
+import json
+import hashlib
 from datetime import datetime
-from typing import List, Dict, Any
 
-from system_state import load_guardian_state
-from news_radar import collect_news_signal
-from vault_ai_judge import judge
 from vault_root_guard import assert_vault_ready
-from ai_decision_audit_report import build_audit_report
-from discord_system_notifier import send_system_message
+from vault_executor import execute_snapshot, execute_event
+from system_state import load_state, save_state
+from notifier import send_discord_message
+from news_radar import get_news_weight
+from performance_snapshot import build_performance_snapshot
+
+# ========= Vault / Discord 檢查 =========
+assert_vault_ready(os.getenv("DISCORD_WEBHOOK_GENERAL"))
+
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_US")
+MARKET = "US"
 
 
-# Discord（系統 / 一般頻道）
-DISCORD_WEBHOOK_GENERAL = os.getenv("DISCORD_WEBHOOK_GENERAL")
+def ai_analyzer(data: dict) -> dict:
+    if not data:
+        return {"ok": False, "reason": "NO_DATA"}
+    return {"ok": True, "score": data["score"]}
 
 
-def _data_ready_check(stock_pool: List[dict], indicators: Dict[str, Any]) -> bool:
-    if not stock_pool:
-        return False
-    if not indicators:
-        return False
-    return True
+def ai_auditor(result: dict) -> dict:
+    if not result.get("ok"):
+        return {"ok": False}
+    if result["score"] < 0.3:
+        return {"ok": False}
+    return {"ok": True}
 
 
-def run_ai_us_post(
-    stock_pool: List[dict],
-    indicators: Dict[str, Any],
-    ai_council_messages: List[str]
-) -> Dict[str, Any] | None:
-    """
-    美股 AI 主流程入口
-    """
+def ai_arbiter(analysis: dict, audit: dict) -> dict:
+    return {"final": analysis["ok"] and audit["ok"]}
 
-    # 🔒 Fail Fast：Vault 必須存在
-    assert_vault_ready(DISCORD_WEBHOOK_GENERAL)
 
-    guardian_state = load_guardian_state()
-    guardian_level = guardian_state.get("level", -1)
+def is_duplicate(content: str) -> bool:
+    state = load_state()
+    h = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    if state.get("last_us_hash") == h:
+        return True
+    state["last_us_hash"] = h
+    save_state(state)
+    return False
 
-    # 1️⃣ 防止無資料卻給結論
-    if not _data_ready_check(stock_pool, indicators):
-        audit = build_audit_report(
-            market="US",
-            guardian_state=guardian_state,
-            judge_result={
-                "confidence": 0.0,
-                "veto": True,
-                "reason": "資料不完整 / 未開市"
-            },
-            bridge_messages=ai_council_messages
+
+def main():
+    market_data = build_performance_snapshot(MARKET)
+    news_weight = get_news_weight(MARKET)
+
+    combined_score = market_data.get("score", 0) * news_weight
+
+    analysis = ai_analyzer({"score": combined_score})
+    audit = ai_auditor(analysis)
+    decision = ai_arbiter(analysis, audit)
+
+    if not decision["final"]:
+        execute_event(
+            "us_ai_abort",
+            {"time": datetime.utcnow().isoformat()}
         )
+        return
 
-        send_system_message(
-            webhook=DISCORD_WEBHOOK_GENERAL,
-            fingerprint=audit["fingerprint"],
-            content=audit["text"]
-        )
-        return None
+    report_text = market_data["report_text"]
 
-    # 2️⃣ 新聞 / 消息面
-    news_signal = collect_news_signal(market="US")
+    if is_duplicate(report_text):
+        return
 
-    # 3️⃣ AI Judge
-    judge_input = {
-        "stocks": stock_pool,
-        "indicators": indicators,
-        "news": news_signal,
-        "guardian_level": guardian_level
-    }
+    execute_snapshot(MARKET, report_text)
+    send_discord_message(DISCORD_WEBHOOK, report_text)
 
-    judge_result = judge(judge_input)
 
-    # 4️⃣ AI 決策審計
-    audit = build_audit_report(
-        market="US",
-        guardian_state=guardian_state,
-        judge_result=judge_result,
-        bridge_messages=ai_council_messages
-    )
-
-    # 5️⃣ Discord（系統 / 一般頻道）
-    send_system_message(
-        webhook=DISCORD_WEBHOOK_GENERAL,
-        fingerprint=audit["fingerprint"],
-        content=audit["text"]
-    )
-
-    return judge_result
+if __name__ == "__main__":
+    main()
