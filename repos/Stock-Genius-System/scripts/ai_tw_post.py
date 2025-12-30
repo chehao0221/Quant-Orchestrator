@@ -1,130 +1,188 @@
+# -*- coding: utf-8 -*-
+"""
+ai_tw_post.py
+最終封頂版（依 Quant-Orchestrator 鐵律）
+
+- 僅負責：台股 AI 分析 + 報告生成 + Discord 發送
+- 不交易、不改 Guardian、不越權 Vault
+- 顯示格式：100% 鎖定使用者提供的「台股 AI 進階預測報告」範例
+"""
+
 import os
-import sys
 import json
-import warnings
-import requests
-import pandas as pd
-from datetime import datetime
-from xgboost import XGBRegressor
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List, Dict
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, BASE_DIR)
+from guard_check import guardian_freeze_check
+from news_radar import load_news_score
+from safe_yfinance import is_tw_market_open
+from system_state import (
+    load_system_state,
+    save_system_state,
+)
 
-from scripts.safe_yfinance import safe_download
+from vault_backtest_writer import write_day0_prediction
+from vault_backtest_reader import read_day5_result
+from vault_backtest_validator import validate_hit_rate
 
-warnings.filterwarnings("ignore")
-
-DATA_DIR = os.path.join(BASE_DIR, "data")
-L4_ACTIVE_FILE = os.path.join(DATA_DIR, "l4_active.flag")
-EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_tw.json")
-HISTORY_FILE = os.path.join(DATA_DIR, "tw_history.csv")
-
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_TW", "").strip()
-HORIZON = 5
-
-if os.path.exists(L4_ACTIVE_FILE):
-    sys.exit(0)
+from performance_snapshot import snapshot_equity_curve
+from performance_discord_report import send_discord_message
 
 
-def calc_pivot(df):
-    r = df.iloc[-20:]
-    h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
-    p = (h + l + c) / 3
-    return round(2 * p - h, 2), round(2 * p - l, 2)
+# =========================
+# 基本設定（不可改意義）
+# =========================
+
+MARKET = "TW"
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW")
+VAULT_ROOT = Path(r"E:\Quant-Vault")
+
+REPORT_KEY = "TW_AI_REPORT"
+CONF_HIGH = 60
+CONF_MID = 30
 
 
-def confidence_emoji(conf):
-    if conf >= 0.6:
+# =========================
+# 共用工具（TW / US 對齊）
+# =========================
+
+def confidence_to_emoji(conf: float) -> str:
+    if conf > CONF_HIGH:
         return "🟢"
-    elif conf >= 0.3:
+    if conf >= CONF_MID:
         return "🟡"
-    else:
-        return "🔴"
+    return "🔴"
 
 
-def run():
-    core_watch = ["2330.TW", "2317.TW", "2454.TW", "2308.TW", "2412.TW"]
+def can_send_report(now: datetime, state: dict) -> bool:
+    """
+    去重規則（跨 workflow / 重跑）
+    """
+    last = state.get(REPORT_KEY)
+    if not last:
+        return True
+    last_time = datetime.fromisoformat(last)
+    return now.date() != last_time.date()
 
-    data = safe_download(core_watch)
-    if data is None:
+
+def mark_sent(state: dict, now: datetime):
+    state[REPORT_KEY] = now.isoformat()
+
+
+# =========================
+# AI 核心邏輯（不交易）
+# =========================
+
+def calculate_confidence(base_score: float, news_score: float, market_penalty: float) -> float:
+    """
+    AI 判斷核心（可學習參數型）
+    """
+    score = base_score * 0.7 + news_score * 0.3
+    score *= market_penalty
+    return max(0, min(100, score))
+
+
+def build_report_block(title: str, rows: List[str]) -> str:
+    block = [title, "-" * 28]
+    block.extend(rows)
+    block.append("")
+    return "\n".join(block)
+
+
+# =========================
+# 主流程
+# =========================
+
+def main():
+    now = datetime.now()
+
+    # 1️⃣ Guardian freeze 檢查
+    if guardian_freeze_check():
         return
 
-    feats = ["mom20", "bias", "vol_ratio"]
-    results = {}
+    # 2️⃣ 去重檢查
+    state = load_system_state()
+    if not can_send_report(now, state):
+        return
 
+    # 3️⃣ 市場狀態
+    if not is_tw_market_open():
+        report = (
+            "📊 台股 AI 進階預測報告\n"
+            "============================\n\n"
+            "📌 市場狀態：未開市 / 資料不足\n\n"
+            "⚠️ 本日未能取得完整市場資料，系統將於下一個有效交易日重新評估。\n"
+        )
+        send_discord_message(WEBHOOK, report)
+        mark_sent(state, now)
+        save_system_state(state)
+        return
+
+    # 4️⃣ 新聞權重
+    news_score, market_penalty = load_news_score(market=MARKET)
+
+    # 5️⃣ 取得候選股票（既有機制）
+    from forecast_observer import get_tw_candidates
+    top5, core_watch = get_tw_candidates()
+
+    # 6️⃣ 計算信心度
+    top5_rows = []
+    predictions = []
+
+    for s in top5:
+        conf = calculate_confidence(
+            base_score=s["ai_score"],
+            news_score=news_score,
+            market_penalty=market_penalty
+        )
+        emoji = confidence_to_emoji(conf)
+        top5_rows.append(
+            f"{emoji} {s['symbol']}｜信心度 {conf:.1f}%｜{s['summary']}"
+        )
+        predictions.append({
+            "symbol": s["symbol"],
+            "confidence": conf,
+            "market": MARKET,
+            "date": now.date().isoformat()
+        })
+
+    core_rows = []
     for s in core_watch:
-        try:
-            df = data[s].dropna()
-            if len(df) < 120:
-                continue
-
-            df["mom20"] = df["Close"].pct_change(20)
-            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
-            df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
-            df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
-
-            train = df.iloc[:-HORIZON].dropna()
-            model = XGBRegressor(n_estimators=120, max_depth=3, learning_rate=0.05, random_state=42)
-            model.fit(train[feats], train["target"])
-
-            pred = float(model.predict(df[feats].iloc[-1:])[0])
-            confidence = min(abs(pred) * 20, 1.0)
-
-            sup, res = calc_pivot(df)
-
-            results[s] = {
-                "pred": pred,
-                "confidence": confidence,
-                "price": round(df["Close"].iloc[-1], 2),
-                "sup": sup,
-                "res": res,
-            }
-        except Exception:
-            continue
-
-    if not results:
-        return
-
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = f"📊 台股 AI 進階預測報告 ({date_str})\n------------------------------------------\n\n"
-
-    # 海選 Top 5
-    msg += "AI 海選 Top 5（潛力股）\n"
-    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True)[:5]:
-        sym = s.replace(".TW", "")
-        emoji = confidence_emoji(r["confidence"])
-        msg += (
-            f"{emoji} {sym}：預估 {r['pred']:+.2%}｜信心度 {int(r['confidence']*100)}%\n"
-            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
+        conf = calculate_confidence(
+            base_score=s["stability_score"],
+            news_score=news_score,
+            market_penalty=market_penalty
+        )
+        emoji = confidence_to_emoji(conf)
+        core_rows.append(
+            f"{emoji} {s['symbol']}｜穩定信心 {conf:.1f}%｜{s['note']}"
         )
 
-    msg += "\n台股核心監控（固定顯示）\n"
-    for s, r in results.items():
-        sym = s.replace(".TW", "")
-        emoji = confidence_emoji(r["confidence"])
-        msg += (
-            f"{emoji} {sym}：預估 {r['pred']:+.2%}｜信心度 {int(r['confidence']*100)}%\n"
-            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
-        )
+    # 7️⃣ 回測（Day0 寫入 / Day5 讀取）
+    write_day0_prediction(VAULT_ROOT, MARKET, predictions)
+    hit_rate = validate_hit_rate(read_day5_result(VAULT_ROOT, MARKET))
 
-    if os.path.exists(HISTORY_FILE):
-        hist = pd.read_csv(HISTORY_FILE).tail(10)
-        win = hist[hist["pred_ret"] > 0]
-        msg += (
-            "\n------------------------------------------\n"
-            "台股｜近 5 日回測結算（歷史觀測）\n\n"
-            f"交易筆數：{len(hist)}\n"
-            f"命中率：{len(win)/len(hist)*100:.1f}%\n"
-            f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
-            f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
-            "本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n"
-        )
+    # 8️⃣ 報告組裝（格式鎖死）
+    report = (
+        "📊 台股 AI 進階預測報告\n"
+        "============================\n\n"
+        f"🗓 日期：{now.date().isoformat()}\n\n"
+        + build_report_block("【海選 Top 5】", top5_rows)
+        + build_report_block("【核心監控】", core_rows)
+        + f"📈 近 5 日命中率：{hit_rate:.1f}%\n\n"
+        "⚠️ 本報告僅供研究與風險觀測，非任何投資建議。\n"
+    )
 
-    msg += "\n模型為機率推估，僅供研究參考，非投資建議。"
+    # 9️⃣ 發送
+    send_discord_message(WEBHOOK, report)
 
-    if WEBHOOK_URL:
-        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
+    # 🔟 狀態紀錄
+    snapshot_equity_curve(MARKET)
+    mark_sent(state, now)
+    save_system_state(state)
 
 
 if __name__ == "__main__":
-    run()
+    main()
