@@ -1,96 +1,181 @@
-# Vault 冷資料 AI 自動治理執行器（F+ 最終封頂版）
-# 功能：時間衰退判斷 → AI 信任檢查 → 備份 → 刪除 → 審計
-# ❌ 不碰 LOCKED_* ❌ 不可逆刪除 ❌ 無審計不動刀
+# =========================================================
+# AI Vault Retention Executor（封頂最終版）
+#
+# 職責：
+# - 判斷資料是否進入「可刪除候選」
+# - 僅刪除「冷資料」
+# - 嚴格遵守 J / F / Guardian 冷卻規則
+#
+# ❌ 不交易
+# ❌ 不碰 LOCKED_*
+# ❌ 不直接聽 Guardian 指令
+# ❌ 無資料 → 不行動
+# =========================================================
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Dict, List
 
-from vault_cold_file_scanner import scan
-from retention_judge_ai import judge
-from vault_safe_deleter import safe_delete
-from ai_confidence_guard import is_ai_trusted
-from ai_performance_summary import summarize
-from vault_event_store import load_recent_backtests
+from vault_root_guard import assert_vault_ready
+from guardian_state import get_guardian_level
+from vault_event_store import list_vault_events, delete_vault_event
+from vault_backtest_reader import get_recent_hit_rate
+from stock_weight_engine import adaptive_lambda
 
-# ===== 基本設定 =====
-VAULT_PATH = r"E:\Quant-Vault"
-AUDIT_LOG = r"E:\Quant-Vault\LOG\vault_deletion_audit.log"
+# ---------------------------------------------------------
+# 🔐 系統安全檢查
+# ---------------------------------------------------------
+assert_vault_ready(None)
 
-# ===== 工具 =====
-def log(msg: str):
-    os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
-    with open(AUDIT_LOG, "a", encoding="utf-8") as f:
-        f.write(msg + "\n")
+# ---------------------------------------------------------
+# ⚙️ 最終治理參數（封頂）
+# ---------------------------------------------------------
 
-# ===== 主流程 =====
+MIN_UNUSED_DAYS = 90
+MIN_EFFECTIVE_WEIGHT = 0.01
+MIN_DECISION_SCORE = 0.7
+REQUIRED_WEEKS_CONFIRM = 2
+
+PROTECTED_TYPES = {
+    "black_swan",
+    "structural_event"
+}
+
+# ---------------------------------------------------------
+# 核心入口
+# ---------------------------------------------------------
+
 def main():
-    # 1️⃣ 檢查 AI 是否有資格動刀
-    backtests = load_recent_backtests(limit=50)
+    guardian_level = get_guardian_level()
 
-    if not backtests:
-        log("[ABORT] No backtest data. Skip retention.")
+    # 高風險期，直接禁止刪除（鐵律）
+    if guardian_level >= 4:
         return
 
-    perf = summarize(backtests)
+    hit_rate = get_recent_hit_rate()
+    if hit_rate is None:
+        return  # 無審計資料，不刪（鐵律）
 
-    if not is_ai_trusted({
-        "hit_rate": perf["hit_rate"],
-        "samples": len(backtests)
-    }):
-        log("[ABORT] AI confidence insufficient. Skip deletion.")
+    events = list_vault_events()
+    if not events:
         return
 
-    # 2️⃣ 掃描冷資料
-    cold_files = scan(VAULT_PATH)
+    now = datetime.utcnow()
+    deletion_candidates: List[Dict] = []
 
-    if not cold_files:
-        log("[INFO] No cold files detected.")
-        return
+    for event in events:
+        decision = evaluate_event(event, hit_rate, now)
+        if decision["eligible"]:
+            deletion_candidates.append(decision)
 
-    # 3️⃣ 逐一判斷（時間衰退 + 多重鐵律）
-    for f in cold_files:
-        path = f["path"]
-        age_days = f["age_days"]
+    # -----------------------------------------------------
+    # 執行刪除（已二次確認）
+    # -----------------------------------------------------
+    for d in deletion_candidates:
+        delete_vault_event(d["event_id"])
 
-        # 絕對防線
-        if "LOCKED_" in path:
-            continue
 
-        # 僅允許特定路徑
-        if not (
-            r"\STOCK_DB\" in path or
-            r"\TEMP_CACHE\" in path
-        ):
-            continue
+# ---------------------------------------------------------
+# 🔍 單筆事件評估
+# ---------------------------------------------------------
 
-        # 時間衰退 AI 判斷
-        decision = judge(f)
+def evaluate_event(event: Dict, hit_rate: float, now: datetime) -> Dict:
+    """
+    回傳：
+    {
+        eligible: bool,
+        event_id: str,
+        reason: str
+    }
+    """
 
-        # 未達刪除建議 → 跳過
-        if not decision["recommend_delete"]:
-            continue
+    event_id = event.get("id")
+    event_type = event.get("type")
 
-        # 再一道硬保險：2 年以下不動刀
-        if age_days < 730:
-            continue
+    if not event_id or not event_type:
+        return _reject(event_id, "invalid_event")
 
-        # 4️⃣ 執行安全刪除（含備份）
-        result = safe_delete(path)
-        ts = datetime.utcnow().isoformat()
+    # ---------- LOCKED / 黑天鵝保護 ----------
+    if event_type in PROTECTED_TYPES:
+        return _reject(event_id, "protected_type")
 
-        if result.get("ok"):
-            log(
-                f"[{ts}] DELETED | {path} "
-                f"| archived={result['archived_to']} "
-                f"| retain_score={decision['retain_score']} "
-                f"| decay={decision['time_decay']}"
-            )
-        else:
-            log(
-                f"[{ts}] SKIP | {path} "
-                f"| reason={result.get('reason')}"
-            )
+    # ---------- 使用時間 ----------
+    last_used = event.get("last_used_at")
+    if not last_used:
+        return _reject(event_id, "no_last_used")
 
-# ===== 入口 =====
+    unused_days = (now - last_used).days
+    if unused_days < MIN_UNUSED_DAYS:
+        return _reject(event_id, "recently_used")
+
+    # ---------- 權重衰退 ----------
+    created_at = event.get("created_at")
+    if not created_at:
+        return _reject(event_id, "no_created_time")
+
+    age_days = (now - created_at).days
+    lambda_val = adaptive_lambda(hit_rate)
+    effective_weight = pow(2.71828, -lambda_val * age_days)
+
+    if effective_weight >= MIN_EFFECTIVE_WEIGHT:
+        return _reject(event_id, "still_effective")
+
+    # ---------- 歷史確認 ----------
+    confirm_weeks = event.get("deletion_confirm_weeks", 0)
+    confirm_weeks += 1
+
+    event["deletion_confirm_weeks"] = confirm_weeks
+
+    if confirm_weeks < REQUIRED_WEEKS_CONFIRM:
+        return _reject(event_id, "confirming")
+
+    # ---------- 最終分數 ----------
+    decision_score = calculate_decision_score(
+        unused_days,
+        effective_weight,
+        hit_rate
+    )
+
+    if decision_score < MIN_DECISION_SCORE:
+        return _reject(event_id, "score_too_low")
+
+    return {
+        "eligible": True,
+        "event_id": event_id,
+        "reason": "cold_and_unused"
+    }
+
+
+# ---------------------------------------------------------
+# 🧠 決策分數
+# ---------------------------------------------------------
+
+def calculate_decision_score(unused_days, effective_weight, hit_rate):
+    """
+    綜合分數 ∈ [0,1]
+    """
+    usage_factor = min(1.0, unused_days / 180)
+    decay_factor = min(1.0, 1 - effective_weight)
+    performance_factor = max(0.0, 1 - hit_rate)
+
+    return (
+        usage_factor * 0.4 +
+        decay_factor * 0.4 +
+        performance_factor * 0.2
+    )
+
+
+# ---------------------------------------------------------
+# 🧯 Reject Helper
+# ---------------------------------------------------------
+
+def _reject(event_id, reason):
+    return {
+        "eligible": False,
+        "event_id": event_id,
+        "reason": reason
+    }
+
+
 if __name__ == "__main__":
     main()
