@@ -1,3 +1,7 @@
+from vault_root_guard import assert_vault_ready
+
+assert_vault_ready(DISCORD_WEBHOOK_GENERAL)
+
 # 美股 AI 最終預測與系統審計發送器（封頂版）
 # 與 TW 完全對稱，僅市場不同
 
