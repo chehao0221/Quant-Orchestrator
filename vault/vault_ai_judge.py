@@ -1,34 +1,26 @@
-from datetime import datetime
+from pathlib import Path
+import json
+from vault_cold_classifier import classify
 
-def ai_should_delete(meta: dict) -> bool:
+
+def judge(path: Path, meta: dict) -> dict:
     """
-    必須「全部成立」才刪
+    AI 判斷是否可刪
     """
+    temp = classify(path, meta)
 
-    # ---- 硬條件 ----
-    if meta["last_access_days"] < 180:
-        return False
+    decision = {
+        "path": str(path),
+        "temperature": temp,
+        "can_delete": temp == "COLD",
+        "reason": "",
+    }
 
-    if meta.get("in_universe", False):
-        return False
+    if temp == "COLD":
+        decision["reason"] = "長期未使用，命中率與貢獻度低"
+    elif temp == "WARM":
+        decision["reason"] = "近期仍可能被回測或引用"
+    else:
+        decision["reason"] = "高價值或受保護資料"
 
-    if meta.get("in_recent_top5", False):
-        return False
-
-    if meta.get("in_core_watch", False):
-        return False
-
-    if not meta.get("has_newer_version", False):
-        return False
-
-    # ---- 隱性保險 ----
-    if meta.get("read_by_ai_7d", False):
-        return False
-
-    if meta.get("top5_count", 0) >= 3:
-        return False
-
-    if meta.get("black_swan_related", False):
-        return False
-
-    return True
+    return decision
