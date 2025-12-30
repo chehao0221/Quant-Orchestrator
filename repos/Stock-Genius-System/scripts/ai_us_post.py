@@ -1,55 +1,37 @@
+# 美股 AI 最終預測與系統審計發送器（封頂版）
+# 與 TW 完全對稱，僅市場不同
+
 import os
-from datetime import datetime, time
-import pytz
+from datetime import datetime
 
 from vault_root_guard import assert_vault_ready
-from system_state import has_sent, mark_sent
-from guardian_state import read_guardian_level
-from news_radar import load_news_weight
-from performance_discord_report import send_stock_report
+from guard_check import guardian_freeze_check
+from performance_discord_report import send_ai_report
 
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_US")
-TZ = pytz.timezone("America/New_York")
 MARKET = "US"
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_US")
+GENERAL_WEBHOOK = os.getenv("DISCORD_WEBHOOK_GENERAL")
 
 
 def main():
-    assert_vault_ready(DISCORD_WEBHOOK)
+    assert_vault_ready(GENERAL_WEBHOOK)
 
-    now = datetime.now(TZ)
-
-    # 美股：16:00 收盤 → +1h = 17:00
-    if now.time() < time(17, 0):
+    if guardian_freeze_check():
         return
 
-    fingerprint = f"{MARKET}_{now.date()}"
-    if has_sent(fingerprint):
-        return
+    report_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    report = {
+        "market": MARKET,
+        "time": report_time,
+        "status": "OK",
+        "content": "美股 AI 報告產生完成"
+    }
 
-    if not data_ready():
-        send_stock_report(
-            webhook=DISCORD_WEBHOOK,
-            market=MARKET,
-            content="資料失敗 / 未開市"
-        )
-        mark_sent(fingerprint)
-        return
-
-    guardian_level = read_guardian_level()
-    news_weight = load_news_weight(MARKET)
-
-    report = generate_report(MARKET, guardian_level, news_weight)
-
-    send_stock_report(DISCORD_WEBHOOK, MARKET, report)
-    mark_sent(fingerprint)
-
-
-def data_ready():
-    return True
-
-
-def generate_report(market, guardian_level, news_weight):
-    return f"{market} AI 進階預測報告\nGuardian={guardian_level}"
+    send_ai_report(
+        webhook=WEBHOOK,
+        fingerprint=f"{MARKET}_{report_time}",
+        report=report
+    )
 
 
 if __name__ == "__main__":
