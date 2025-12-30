@@ -1,3 +1,7 @@
+from vault_root_guard import assert_vault_ready
+
+assert_vault_ready(DISCORD_WEBHOOK_GENERAL)
+
 # 台股 AI 最終預測與系統審計發送器（封頂版）
 # 僅負責：分析、判斷、產生報告、發送 Discord
 # ❌ 不交易 ❌ 不寫 LOCKED_* ❌ 不碰 Guardian 決策
