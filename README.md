@@ -25,80 +25,107 @@ Quant-Orchestrator 是一套 **非交易型 AI 市場觀測系統**，
 ## 二、整體架構總覽
 
 
-
+📦 Quant-Orchestrator — 最終整體架構
 ```
 Quant-Orchestrator/
-│
-├─ .github/
-│  └─ workflows/                     ← GitHub Actions 排程層
-│     ├─ guardian.yml                ← Guardian 風控（90 分鐘）
-│     ├─ genius_tw.yml               ← 台股 AI（盤後一次）
-│     ├─ genius_us.yml               ← 美股 AI（收盤後一次）
-│     └─ explorer.yml                ← Explorer 池更新
-│
 ├─ repos/
-│  ├─ Quant-Guardian-Ultra/           ← Guardian 風控核心
-│  │   │
-│  │   ├─ core/
-│  │   │   ├─ __init__.py
-│  │   │   ├─ engine.py               ← GuardianEngine（evaluate_risk）
-│  │   │   ├─ notifier.py             ← Discord 通知（GREEN / YELLOW / RED）
-│  │   │   └─ risk_policy.py          ← L0–L5 風控邏輯
-│  │   │
-│  │   ├─ modules/                    ← Guardian 掃描模組（news / vix 等）
-│  │   │   └─ …（你原本的）
-│  │   │
-│  │   ├─ data/                       ← Guardian 自用資料
-│  │   │   └─ …
-│  │   │
-│  │   ├─ entrypoint.py               ← guardian.yml 入口
-│  │   └─ requirements.txt
+│  ├─ Quant-Guardian-Ultra/
+│  │  ├─ core/
+│  │  ├─ modules/
+│  │  │  ├─ analysts/
+│  │  │  ├─ guardians/
+│  │  │  └─ scanners/
+│  │  ├─ entrypoint.py
+│  │  ├─ requirements.txt
+│  │  └─ README.md
 │  │
-│  └─ Stock-Genius-System/            ← 市場分析系統（不交易）
-│      │
-│      ├─ data/
-│      │   ├─ tw_history.csv
-│      │   ├─ us_history.csv
-│      │   ├─ explorer_pool_tw.json
-│      │   ├─ explorer_pool_us.json
-│      │   ├─ horizon_policy.json
-│      │   ├─ black_swan_history.csv
-│      │   ├─ news_cache.json
-│      │   ├─ l3_warning.flag
-│      │   ├─ l4_active.flag
-│      │   ├─ l4_last_end.flag
-│      │   ├─ equity_TW.png
-│      │   └─ equity_US.png
-│      │
-│      ├─ scripts/                    ← 所有實際執行腳本
-│      │   ├─ guard_check.py           ← ✅ Guardian freeze 檢查（你現在用的）
-│      │   │
-│      │   ├─ ai_tw_post.py            ← 台股 AI 預測（盤後）
-│      │   ├─ ai_us_post.py            ← 美股 AI 預測（收盤後）
-│      │   │
-│      │   ├─ update_tw_explorer_pool.py
-│      │   ├─ update_us_explorer_pool.py
-│      │   │
-│      │   ├─ news_radar.py
-│      │   ├─ performance_dashboard.py
-│      │   ├─ safe_yfinance.py
-│      │   │
-│      │   └─ l4_*.py                  ← L4 / 黑天鵝處理
-│      │
-│      ├─ requirements.txt
-│      ├─ README.md
-│      └─ LICENSE
+│  └─ Stock-Genius-System/
+│     ├─ scripts/
+│     │  ├─ ai_tw_post.py
+│     │  ├─ ai_us_post.py
+│     │  ├─ ai_jp_post.py
+│     │  ├─ ai_crypto_post.py
+│     │  ├─ news_radar.py
+│     │  ├─ news_buffer.py
+│     │  └─ ...
+│     ├─ requirements.txt
+│     └─ README.md
+│
+├─ vault/
+│  ├─ vault_event_store.py
+│  ├─ vault_pool_manager.py
+│  ├─ vault_ai_judge.py
+│  ├─ vault_retention_executor.py
+│  ├─ vault_backtest_writer.py
+│  └─ ...
+│
+├─ utils/
+│  ├─ vault_root_guard.py
+│  ├─ vault_ai_cleaner.py
+│  └─ ...
 │
 ├─ shared/
-│  └─ guardian_state.json             ← 🔑 全系統唯一風控狀態
+│  ├─ guardian_state.py
+│  ├─ system_state.json
+│  └─ ...
 │
 └─ README.md
 
+```
+---
+💾 E:\Quant-Vault（外接硬碟實體結構｜可直接複製）
+```
+E:\Quant-Vault
+├─ LOCKED_RAW/
+│  ├─ market_raw/
+│  ├─ black_swan/
+│  └─ backtest/
+│
+├─ LOCKED_DECISION/
+│  ├─ guardian/
+│  ├─ risk_policy/
+│  └─ horizon/
+│
+├─ STOCK_DB/
+│  ├─ TW/
+│  │  ├─ universe/
+│  │  ├─ shortlist/
+│  │  ├─ core_watch/
+│  │  ├─ history/
+│  │  └─ cache/
+│  │
+│  ├─ US/
+│  │  ├─ universe/
+│  │  ├─ shortlist/
+│  │  ├─ core_watch/
+│  │  ├─ history/
+│  │  └─ cache/
+│  │
+│  ├─ JP/
+│  │  ├─ universe/
+│  │  ├─ shortlist/
+│  │  ├─ core_watch/
+│  │  ├─ history/
+│  │  └─ cache/
+│  │
+│  └─ CRYPTO/
+│     ├─ universe/
+│     ├─ shortlist/
+│     ├─ core_watch/
+│     ├─ history/
+│     └─ cache/
+│
+├─ TEMP_CACHE/
+│  ├─ cache/
+│  ├─ snapshot/
+│  └─ tmp/
+│
+├─ stock_data.db
+│
+└─ LOG/
+
 
 ```
-
-
-
 ---
 
 ## 三、三大系統角色（責任邊界）
