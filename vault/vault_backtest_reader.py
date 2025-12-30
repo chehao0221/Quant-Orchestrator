@@ -1,35 +1,33 @@
-# 路徑：Quant-Orchestrator/vault/vault_backtest_reader.py
+# 路徑：Quant-Orchestrator/vault/vault_ai_judge.py
 
-import os
 import json
-from datetime import datetime, timedelta
+import os
 
-VAULT_PATH = r"E:\Quant-Vault\LOCKED_RAW\backtest"
+WEIGHT_PATH = r"E:\Quant-Vault\LOCKED_DECISION\risk_policy\ai_weights.json"
+MAX_SHIFT = 0.1  # 防止一次學歪
 
 
-def load_backtest_results(market: str, days: int = 30):
-    results = []
-    cutoff = datetime.now() - timedelta(days=days)
+def update_ai_weights(market: str, summary: dict):
+    os.makedirs(os.path.dirname(WEIGHT_PATH), exist_ok=True)
 
-    market_path = os.path.join(VAULT_PATH, market)
-    if not os.path.exists(market_path):
-        return []
+    if os.path.exists(WEIGHT_PATH):
+        with open(WEIGHT_PATH, "r", encoding="utf-8") as f:
+            weights = json.load(f)
+    else:
+        weights = {}
 
-    for f in os.listdir(market_path):
-        if not f.endswith(".json"):
+    weights.setdefault(market, {})
+
+    for ind, stat in summary["by_indicator"].items():
+        total = stat["hit"] + stat["miss"]
+        if total == 0:
             continue
 
-        path = os.path.join(market_path, f)
-        with open(path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
+        score = (stat["hit"] - stat["miss"]) / total
+        shift = max(min(score * 0.05, MAX_SHIFT), -MAX_SHIFT)
 
-        ts = datetime.fromisoformat(data["date"])
-        if ts < cutoff:
-            continue
+        old = weights[market].get(ind, 1.0)
+        weights[market][ind] = round(max(old + shift, 0.1), 3)
 
-        if "hit" not in data:
-            continue  # 尚未完成 Day5
-
-        results.append(data)
-
-    return results
+    with open(WEIGHT_PATH, "w", encoding="utf-8") as f:
+        json.dump(weights, f, indent=2, ensure_ascii=False)
