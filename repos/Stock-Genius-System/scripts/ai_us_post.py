@@ -1,134 +1,72 @@
 import os
 import sys
 import json
-import time
 import warnings
 import requests
-from pathlib import Path
-from datetime import datetime
-
 import pandas as pd
+from datetime import datetime
 from xgboost import XGBRegressor
+
+# ===== Path Fix =====
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
+
+from scripts.safe_yfinance import safe_download
 
 warnings.filterwarnings("ignore")
 
-# ==================================================
-# Path
-# ==================================================
-BASE_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(BASE_DIR))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 
-from scripts.safe_yfinance import safe_download
-from vault.vault_backtest_reader import (
-    read_symbol_history,
-    read_market_aggregate,
-)
-from vault.vault_backtest_writer import write_backtest
-from vault.schema import (
-    compute_decay_weight,
-    compute_fixed_score,
-    compute_confidence,
-)
+L4_ACTIVE_FILE = os.path.join(DATA_DIR, "l4_active.flag")
+EXPLORER_POOL_FILE = os.path.join(DATA_DIR, "explorer_pool_us.json")
+HISTORY_FILE = os.path.join(DATA_DIR, "us_history.csv")
 
-# ==================================================
-# Market Config
-# ==================================================
-MARKET = "US"
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_US", "").strip()
-
-DATA_DIR = BASE_DIR / "data"
-EXPLORER_POOL = DATA_DIR / "explorer_pool_us.json"
-FAIL_FLAG = DATA_DIR / "us_data_failed.flag"
-GUARDIAN_STATE = BASE_DIR.parents[1] / "shared" / "guardian_state.json"
-
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_US", "").strip()
 HORIZON = 5
-MAX_FIXED = 7
-RETRY_HOURS = 2
 
-# ==================================================
-def guardian_freeze():
-    if not GUARDIAN_STATE.exists():
-        return False
-    s = json.loads(GUARDIAN_STATE.read_text())
-    return s.get("freeze", False) and s.get("level", 0) >= 4
+if os.path.exists(L4_ACTIVE_FILE):
+    sys.exit(0)
 
-def confidence_emoji(conf):
-    if conf >= 0.6:
-        return "🟢"
-    if conf >= 0.4:
-        return "🟡"
-    return "🔴"
-
-def trend_emoji(pred):
-    return "📈" if pred >= 0 else "📉"
-
-def calc_features(df):
-    df["mom20"] = df["Close"].pct_change(20)
-    df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
-    df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
-    return df
-
+# ===============================
 def calc_pivot(df):
     r = df.iloc[-20:]
     h, l, c = r["High"].max(), r["Low"].min(), r["Close"].iloc[-1]
     p = (h + l + c) / 3
     return round(2*p - h, 2), round(2*p - l, 2)
 
-def load_explorer():
-    if not EXPLORER_POOL.exists():
-        return []
-    return json.loads(EXPLORER_POOL.read_text()).get("symbols", [])
-
-# ==================================================
+# ===============================
 def run():
-    # Guardian freeze = 直接不發文
-    if guardian_freeze():
+    core_watch = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA"]
+    data = safe_download(core_watch)
+
+    if data is None:
+        print("[INFO] US AI skipped (data failure)")
         return
 
-    symbols = list(set(load_explorer()))
-    if not symbols:
-        return
-
-    data = None
-    for _ in range(RETRY_HOURS + 1):
-        data = safe_download(symbols)
-        if data:
-            break
-        time.sleep(3600)
-
-    if not data:
-        FAIL_FLAG.touch()
-        return
-
-    feats = ["mom20", "bias", "vol_ratio"]
+    feats = ["mom20","bias","vol_ratio"]
     results = {}
 
-    for s, df in data.items():
+    for s in core_watch:
         try:
-            df = calc_features(df.dropna())
+            df = data[s].dropna()
             if len(df) < 120:
                 continue
 
+            df["mom20"] = df["Close"].pct_change(20)
+            df["bias"] = (df["Close"] - df["Close"].rolling(20).mean()) / df["Close"].rolling(20).mean()
+            df["vol_ratio"] = df["Volume"] / df["Volume"].rolling(20).mean()
             df["target"] = df["Close"].shift(-HORIZON) / df["Close"] - 1
-            train = df.iloc[:-HORIZON].dropna()
 
-            model = XGBRegressor(
-                n_estimators=120,
-                max_depth=3,
-                learning_rate=0.05,
-                random_state=42,
-            )
+            train = df.iloc[:-HORIZON].dropna()
+            model = XGBRegressor(n_estimators=120, max_depth=3, learning_rate=0.05, random_state=42)
             model.fit(train[feats], train["target"])
 
             pred = float(model.predict(df[feats].iloc[-1:])[0])
-            conf = compute_confidence(df, pred)
             sup, res = calc_pivot(df)
-
-            write_backtest(MARKET, s, pred)
 
             results[s] = {
                 "pred": pred,
-                "conf": conf,
                 "price": round(df["Close"].iloc[-1], 2),
                 "sup": sup,
                 "res": res,
@@ -140,66 +78,69 @@ def run():
         return
 
     # ===============================
-    # Top 5（即時預測）
-    # ===============================
-    ranked = sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True)
-    top5 = ranked[:5]
-
-    # ===============================
-    # 核心監控（衰退權重 + 歷史 + 補位）
-    # ===============================
-    fixed_scores = []
-    for s, r in results.items():
-        hist = read_symbol_history(MARKET, s, days=90)
-        decay = compute_decay_weight(hist)
-        score = compute_fixed_score(r["pred"], decay, hist)
-        fixed_scores.append((s, score))
-
-    fixed = [
-        s for s, _ in sorted(fixed_scores, key=lambda x: x[1], reverse=True)[:MAX_FIXED]
-    ]
-
-    # ===============================
     # Discord Message
     # ===============================
     date_str = datetime.now().strftime("%Y-%m-%d")
-    msg = f"📊 美股 AI 進階預測報告（{date_str}）\n\n"
+    msg = (
+        f"📊 美股 AI 進階預測報告 ({date_str})\n"
+        f"------------------------------------------\n\n"
+    )
 
-    msg += "🔍 AI 海選 Top 5\n"
-    for s, r in top5:
+    # 🔍 Explorer
+    if os.path.exists(EXPLORER_POOL_FILE):
+        try:
+            pool = json.load(open(EXPLORER_POOL_FILE, "r", encoding="utf-8"))
+            explorer_syms = pool.get("symbols", [])[:100]
+
+            hits = []
+            for s in explorer_syms:
+                if s not in results:
+                    continue
+                hits.append((s, results[s]))
+
+            top5 = sorted(hits, key=lambda x: x[1]["pred"], reverse=True)[:5]
+            if top5:
+                msg += "🔍 AI 海選 Top 5（潛力股）\n"
+                for s, r in top5:
+                    emoji = "📈" if r["pred"] > 0 else "📉"
+                    msg += (
+                        f"{emoji} {s}：預估 {r['pred']:+.2%}\n"
+                        f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
+                    )
+                msg += "\n"
+        except Exception:
+            pass
+
+    # 👁 Core
+    msg += "👁 Magnificent 7 監控（固定顯示）\n"
+    for s, r in sorted(results.items(), key=lambda x: x[1]["pred"], reverse=True):
+        emoji = "📈" if r["pred"] > 0 else "📉"
         msg += (
-            f"{confidence_emoji(r['conf'])} {s}｜"
-            f"預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
+            f"{emoji} {s}：預估 {r['pred']:+.2%}\n"
             f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
         )
 
-    msg += "\n👁 核心監控清單（衰退權重自動調整）\n"
-    for s in fixed:
-        r = results[s]
-        msg += (
-            f"{confidence_emoji(r['conf'])} {s}｜"
-            f"預估 {r['pred']:+.2%} ｜信心度 {int(r['conf']*100)}%\n"
-            f"└ 現價 {r['price']}（支撐 {r['sup']} / 壓力 {r['res']}）\n"
-        )
-
-    # ===============================
-    # 回測摘要（Vault）
-    # ===============================
-    agg = read_market_aggregate(MARKET, days=5)
-    if agg:
-        msg += (
-            "\n📊 近 5 日回測結算（歷史觀測）\n\n"
-            f"交易筆數：{agg['count']}\n"
-            f"命中率：{agg['win_rate']:.1f}%\n"
-            f"平均報酬：{agg['avg_ret']:+.2%}\n"
-            f"最大回撤：{agg['max_dd']:+.2%}\n"
-        )
+    # 📊 Backtest
+    if os.path.exists(HISTORY_FILE):
+        try:
+            hist = pd.read_csv(HISTORY_FILE).tail(50)
+            win = hist[hist["pred_ret"] > 0]
+            msg += (
+                "\n------------------------------------------\n"
+                "📊 美股｜近 5 日回測結算（歷史觀測）\n\n"
+                f"交易筆數：{len(hist)}\n"
+                f"命中率：{len(win)/len(hist)*100:.1f}%\n"
+                f"平均報酬：{hist['pred_ret'].mean():+.2%}\n"
+                f"最大回撤：{hist['pred_ret'].min():+.2%}\n\n"
+                "📌 本結算僅為歷史統計觀測，不影響任何即時預測或系統行為\n"
+            )
+        except Exception:
+            pass
 
     msg += "\n💡 模型為機率推估，僅供研究參考，非投資建議。"
 
-    if WEBHOOK:
-        requests.post(WEBHOOK, json={"content": msg[:1900]}, timeout=15)
+    if WEBHOOK_URL:
+        requests.post(WEBHOOK_URL, json={"content": msg[:1900]}, timeout=15)
 
-# ==================================================
 if __name__ == "__main__":
     run()
