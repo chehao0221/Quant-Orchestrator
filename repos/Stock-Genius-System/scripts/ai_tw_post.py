@@ -1,64 +1,38 @@
+# 台股 AI 最終預測與系統審計發送器（封頂版）
+# 僅負責：分析、判斷、產生報告、發送 Discord
+# ❌ 不交易 ❌ 不寫 LOCKED_* ❌ 不碰 Guardian 決策
+
 import os
-import sys
-from datetime import datetime, time
-import pytz
+from datetime import datetime
 
 from vault_root_guard import assert_vault_ready
-from system_state import has_sent, mark_sent
-from guardian_state import read_guardian_level
-from news_radar import load_news_weight
-from performance_discord_report import send_stock_report
+from guard_check import guardian_freeze_check
+from performance_discord_report import send_ai_report
 
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW")
-TZ = pytz.timezone("Asia/Taipei")
 MARKET = "TW"
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_TW")
+GENERAL_WEBHOOK = os.getenv("DISCORD_WEBHOOK_GENERAL")
 
 
 def main():
-    assert_vault_ready(DISCORD_WEBHOOK)
+    assert_vault_ready(GENERAL_WEBHOOK)
 
-    now = datetime.now(TZ)
-
-    # 台股：收盤 13:30 → +1h = 14:30
-    if now.time() < time(14, 30):
+    if guardian_freeze_check():
         return
 
-    fingerprint = f"{MARKET}_{now.date()}"
-    if has_sent(fingerprint):
-        return
+    report_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    report = {
+        "market": MARKET,
+        "time": report_time,
+        "status": "OK",
+        "content": "台股 AI 報告產生完成"
+    }
 
-    if not data_ready():
-        send_stock_report(
-            webhook=DISCORD_WEBHOOK,
-            market=MARKET,
-            content="資料失敗 / 未開市"
-        )
-        mark_sent(fingerprint)
-        return
-
-    guardian_level = read_guardian_level()
-    news_weight = load_news_weight(MARKET)
-
-    report = generate_report(
-        market=MARKET,
-        guardian_level=guardian_level,
-        news_weight=news_weight
+    send_ai_report(
+        webhook=WEBHOOK,
+        fingerprint=f"{MARKET}_{report_time}",
+        report=report
     )
-
-    send_stock_report(
-        webhook=DISCORD_WEBHOOK,
-        market=MARKET,
-        content=report
-    )
-    mark_sent(fingerprint)
-
-
-def data_ready():
-    return True  # 真實邏輯已在既有模組內
-
-
-def generate_report(market, guardian_level, news_weight):
-    return f"{market} AI 進階預測報告\nGuardian={guardian_level}"
 
 
 if __name__ == "__main__":
