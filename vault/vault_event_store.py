@@ -1,23 +1,24 @@
+import os
 import json
-from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
+from writer import safe_write
 
-VAULT_DIR = Path("E:/Quant-Vault/LOCKED_RAW/black_swan")
-VAULT_DIR.mkdir(parents=True, exist_ok=True)
+VAULT_ROOT = r"E:\Quant-Vault"
 
-def _event_path(event_id: str) -> Path:
-    return VAULT_DIR / f"{event_id}.json"
 
-def exists_recent(event_id: str, minutes: int = 90) -> bool:
-    path = _event_path(event_id)
-    if not path.exists():
-        return False
+def write_event(event_type: str, payload: dict) -> bool:
+    ts = datetime.utcnow().isoformat()
+    record = {
+        "timestamp": ts,
+        "type": event_type,
+        "payload": payload
+    }
 
-    data = json.loads(path.read_text(encoding="utf-8"))
-    ts = datetime.fromisoformat(data["timestamp"])
-    return datetime.utcnow() - ts < timedelta(minutes=minutes)
+    path = os.path.join(
+        VAULT_ROOT,
+        "TEMP_CACHE",
+        "events",
+        f"{event_type}_{ts}.json"
+    )
 
-def write_event(payload: dict):
-    path = _event_path(payload["id"])
-    payload["timestamp"] = datetime.utcnow().isoformat()
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return safe_write(path, json.dumps(record, ensure_ascii=False, indent=2))
