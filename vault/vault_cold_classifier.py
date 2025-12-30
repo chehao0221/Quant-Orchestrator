@@ -7,7 +7,8 @@ WARM_DAYS = 30
 
 def classify(path: Path, meta: dict) -> str:
     """
-    回傳：HOT / WARM / COLD
+    回傳資料溫度：
+    HOT / WARM / COLD
     """
     now = datetime.now()
 
@@ -18,7 +19,7 @@ def classify(path: Path, meta: dict) -> str:
     last_used_time = datetime.fromisoformat(last_used)
     delta = now - last_used_time
 
-    # 黑天鵝 / 人格資料永不刪
+    # 黑天鵝 / 人格資料 永久保護
     if meta.get("protected"):
         return "HOT"
 
