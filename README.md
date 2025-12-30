@@ -98,8 +98,6 @@ Quant-Orchestrator/
 ```
 
 
-```
-
 
 ---
 
@@ -149,15 +147,18 @@ Quant-Orchestrator/
 - 提供 AI 模型背景資料
 
 ---
-
+```
 ## 四、Discord Webhook（唯一出口）
 
-| 類型 | Webhook |
-|----|----|
+| 類型 | Discord Webhook 環境變數 |
+|------|--------------------------|
 | 一般 / 系統 | DISCORD_WEBHOOK_GENERAL |
 | 黑天鵝 | DISCORD_WEBHOOK_BLACK_SWAN |
-| 美股 | DISCORD_WEBHOOK_US |
 | 台股 | DISCORD_WEBHOOK_TW |
+| 美股 | DISCORD_WEBHOOK_US |
+| 日股 | DISCORD_WEBHOOK_JP |
+| 虛擬貨幣 | DISCORD_WEBHOOK_CRYPTO |
+```
 
 **發送規則：**
 - 🔴 → 🟢 僅發一次
