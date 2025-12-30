@@ -1,22 +1,19 @@
-from pathlib import Path
-import json
+import os
+from datetime import datetime
+from writer import safe_write
 
-def write_pool(
-    market_root: Path,
-    pool_name: str,
-    symbols: list[str]
-):
-    pool_dir = market_root / pool_name
-    pool_dir.mkdir(parents=True, exist_ok=True)
+VAULT_ROOT = r"E:\Quant-Vault"
 
-    path = pool_dir / "latest.json"
-    path.write_text(
-        json.dumps(
-            {
-                "symbols": symbols,
-            },
-            ensure_ascii=False,
-            indent=2
-        ),
-        encoding="utf-8"
+
+def write_snapshot(market: str, snapshot_text: str) -> bool:
+    """
+    系統快照寫入（可供 AI / 人類回溯）
+    """
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(
+        VAULT_ROOT,
+        "TEMP_CACHE",
+        "snapshot",
+        f"{market}_{ts}.txt"
     )
+    return safe_write(path, snapshot_text)
