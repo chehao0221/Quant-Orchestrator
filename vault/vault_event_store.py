@@ -1,24 +1,38 @@
 import os
 import json
 from datetime import datetime
-from writer import safe_write
+from typing import Dict, Any
 
 VAULT_ROOT = r"E:\Quant-Vault"
+EVENT_DIR = os.path.join(VAULT_ROOT, "LOG", "events")
 
+os.makedirs(EVENT_DIR, exist_ok=True)
 
-def write_event(event_type: str, payload: dict) -> bool:
-    ts = datetime.utcnow().isoformat()
-    record = {
-        "timestamp": ts,
-        "type": event_type,
+def record_event(
+    event_type: str,
+    payload: Dict[str, Any],
+    fingerprint: str
+):
+    """
+    系統唯一合法事件寫入器
+    - 用於：AI 預測、黑天鵝、系統中止、回測
+    """
+
+    event = {
+        "event_type": event_type,
+        "fingerprint": fingerprint,
+        "timestamp": datetime.utcnow().isoformat(),
         "payload": payload
     }
 
-    path = os.path.join(
-        VAULT_ROOT,
-        "TEMP_CACHE",
-        "events",
-        f"{event_type}_{ts}.json"
-    )
+    filename = f"{event_type}_{fingerprint}.json"
+    path = os.path.join(EVENT_DIR, filename)
 
-    return safe_write(path, json.dumps(record, ensure_ascii=False, indent=2))
+    # 防止重複事件覆寫
+    if os.path.exists(path):
+        return False
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(event, f, ensure_ascii=False, indent=2)
+
+    return True
