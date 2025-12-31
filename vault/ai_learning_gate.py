@@ -1,30 +1,40 @@
 # ai_learning_gate.py
-# AI 學習治理閘門（最終封頂版｜可直接完整覆蓋）
-# 職責：學習是否允許、抑制學歪、閉環紀錄
-# ❌ 不寫死路徑 ❌ 不直接學習 ❌ 不產生市場結論
+# AI 學習治理閘門（終極封頂版）
+# 職責：
+# - 控制是否允許學習
+# - 防止信心過熱 / 學歪
+# - 反向抑制（互相約制）
+# - 與 Guardian 狀態閉環協作
+# ❌ 不做市場判斷 ❌ 不發文 ❌ 不直接產生結論
 
 import os
 import json
 from datetime import datetime, timedelta
 from typing import Tuple
 
-from vault_ai_judge import update_ai_weights
-from shared.guardian_state import get_guardian_level
+from vault.vault_ai_judge import update_ai_weights
+from shared.guardian_state import (
+    get_guardian_level,
+    is_learning_blocked
+)
 
-# ===== 環境參數（不寫死路徑，鐵律）=====
-VAULT_ROOT = os.environ.get("VAULT_ROOT")
-if not VAULT_ROOT:
-    raise RuntimeError("VAULT_ROOT 環境變數未設定")
+# =================================================
+# Vault Root（鐵律：實體 Vault）
+# =================================================
+VAULT_ROOT = r"E:\Quant-Vault"
 
-# ===== 學習治理鐵律參數 =====
-MIN_SAMPLE_SIZE = 30          # 樣本門檻
+# =================================================
+# 學習治理鐵律參數
+# =================================================
+MIN_SAMPLE_SIZE = 30          # 樣本不足不學
 COOLDOWN_DAYS = 5             # 學習冷卻
-BLOCK_LEVEL = 4               # Guardian ≥ L4 禁止學習
-CONF_OVERHEAT = 0.7           # 信心過熱門檻
-HITRATE_FLOOR = 0.45          # 命中率下限（低於即抑制）
-MAX_SHRINK = 0.15             # 反向抑制最大幅度
+CONF_OVERHEAT = 0.7           # 平均信心過熱
+HITRATE_FLOOR = 0.45          # 命中率下限
+MAX_SHRINK = 0.15             # 最大反向抑制幅度
 
-# ===== 狀態檔（僅記錄，不做決策）=====
+# =================================================
+# 狀態紀錄（僅紀錄，不做判斷）
+# =================================================
 LEARNING_STATE_PATH = os.path.join(
     VAULT_ROOT,
     "LOCKED_DECISION",
@@ -32,7 +42,7 @@ LEARNING_STATE_PATH = os.path.join(
     "learning_state.json"
 )
 
-# ---------------------------------------------------------------------
+# -------------------------------------------------
 
 def _load_state() -> dict:
     if not os.path.exists(LEARNING_STATE_PATH):
@@ -46,8 +56,7 @@ def _save_state(state: dict) -> None:
     with open(LEARNING_STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
-
-# ---------------------------------------------------------------------
+# -------------------------------------------------
 
 def can_learn(
     market: str,
@@ -56,19 +65,18 @@ def can_learn(
     hit_rate: float
 ) -> Tuple[bool, str]:
     """
-    判斷是否允許學習（完整閉環）
+    判斷是否允許學習（含 Guardian / 過熱抑制）
     """
 
-    # 1️⃣ Guardian 閘門
-    guardian_level = get_guardian_level()
-    if guardian_level >= BLOCK_LEVEL:
-        return False, f"Guardian_L{guardian_level}_BLOCK"
+    # 1️⃣ Guardian 閘門（最高優先）
+    if is_learning_blocked():
+        return False, f"GUARDIAN_BLOCK_L{get_guardian_level()}"
 
-    # 2️⃣ 樣本數閘門
+    # 2️⃣ 樣本數不足
     if sample_size < MIN_SAMPLE_SIZE:
         return False, "INSUFFICIENT_SAMPLE"
 
-    # 3️⃣ 冷卻閘門
+    # 3️⃣ 冷卻時間
     state = _load_state()
     last = state.get(market, {}).get("last_learned")
     if last:
@@ -76,14 +84,13 @@ def can_learn(
         if datetime.utcnow() - last_dt < timedelta(days=COOLDOWN_DAYS):
             return False, "COOLDOWN_ACTIVE"
 
-    # 4️⃣ 信心過熱 × 命中率下滑 → 禁止正向學習
+    # 4️⃣ 信心過熱 × 命中率下滑
     if avg_confidence >= CONF_OVERHEAT and hit_rate < HITRATE_FLOOR:
         return False, "CONFIDENCE_OVERHEAT"
 
     return True, "ALLOW"
 
-
-# ---------------------------------------------------------------------
+# -------------------------------------------------
 
 def gated_update_ai_weights(
     market: str,
@@ -93,7 +100,7 @@ def gated_update_ai_weights(
     hit_rate: float
 ) -> bool:
     """
-    唯一合法學習入口（含反向抑制）
+    唯一合法權重更新入口（含反向抑制）
     """
 
     allowed, reason = can_learn(
@@ -108,10 +115,11 @@ def gated_update_ai_weights(
     state[market]["last_check"] = datetime.utcnow().isoformat()
     state[market]["last_reason"] = reason
 
+    # ❌ 不允許學習
     if not allowed:
-        # ⚠️ 信心過熱但命中差 → 反向抑制（降權）
         if reason == "CONFIDENCE_OVERHEAT":
-            shrink = min(MAX_SHRINK, (CONF_OVERHEAT - hit_rate))
+            # 反向抑制：全域降權（互相約制）
+            shrink = min(MAX_SHRINK, CONF_OVERHEAT - hit_rate)
             update_ai_weights(
                 market,
                 {
