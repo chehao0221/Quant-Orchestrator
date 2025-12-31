@@ -1,19 +1,28 @@
-# --- Quant-Orchestrator Root 強制注入（最終封頂版）---
+# ===== 強制診斷區（請勿刪）=====
+import os
 import sys
 from pathlib import Path
 
-# ai_tw_post.py
-# repos/Stock-Genius-System/scripts/ai_tw_post.py
-# → Orchestrator root = parents[3]
+print("===== DEBUG START =====")
+print("CWD:", os.getcwd())
+print("__file__:", __file__)
 
-ORCHESTRATOR_ROOT = Path(__file__).resolve().parents[3]
+p = Path(__file__).resolve()
+for i, parent in enumerate(p.parents):
+    print(f"parent[{i}]:", parent)
 
-if not (ORCHESTRATOR_ROOT / "backtest_stats_builder.py").exists():
-    raise RuntimeError(
-        f"❌ Orchestrator Root 定位失敗：{ORCHESTRATOR_ROOT}"
-    )
+print("FILES IN parent[3]:")
+try:
+    for f in p.parents[3].iterdir():
+        print(" -", f.name)
+except Exception as e:
+    print("ERROR listing parent[3]:", e)
 
-sys.path.insert(0, str(ORCHESTRATOR_ROOT))
+print("===== DEBUG END =====")
+
+# ⚠️ 直接中斷，避免後面 import
+raise SystemExit(99)
+
 # ----------------------------------------------------
 
 
