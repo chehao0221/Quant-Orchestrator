@@ -1,25 +1,33 @@
-import os
-import sys
+# 台股 AI Discord 發文器（最終封頂版）
+# 職責：
+# - 呼叫回測統計
+# - 使用 report_backtest_formatter 排版
+# - 發送 Discord
+# ❌ 不計算 ❌ 不學習 ❌ 不硬編路徑
 
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../../")
-)
-sys.path.insert(0, PROJECT_ROOT)
+from backtest_stats_builder import build_backtest_summary
+from report_backtest_formatter import format_backtest_section
+from utils.discord_notifier import send_market_message
 
-from utils.vault_root_guard import assert_vault_ready
-from scripts.guard_check import guardian_freeze_check
 
-DISCORD_WEBHOOK_TW = os.getenv("DISCORD_WEBHOOK_TW")
-MARKET = "TW"
+def post_tw_backtest_report(days: int = 5) -> bool:
+    """
+    台股近 N 日回測報告發送入口
+    """
 
-def main():
-    assert_vault_ready(DISCORD_WEBHOOK_TW)
+    stats = build_backtest_summary(
+        market="TW",
+        days=days
+    )
 
-    state = guardian_freeze_check()
-    if state.get("freeze"):
-        return
+    report = format_backtest_section(stats)
 
-    print(f"[{MARKET}] AI report ready")
+    return send_market_message(
+        webhook="DISCORD_WEBHOOK_TW",
+        fingerprint=f"TW_BACKTEST_{days}D",
+        content=report
+    )
+
 
 if __name__ == "__main__":
-    main()
+    post_tw_backtest_report()
