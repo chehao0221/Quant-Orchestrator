@@ -1,29 +1,25 @@
+# AI 學習治理閘門（P3-3 最終封頂版）
+# ✅ 無硬編碼路徑
+# ✅ 僅允許此檔觸發學習
+# ✅ Guardian / 命中率 / 信心過高 交叉約制
+# ✅ 可永續自我校正，無需再改
+
 import os
 import json
 from datetime import datetime, timedelta
 
-from vault_ai_judge import judge
-from shared.guardian_state import get_guardian_level
 from shared.runtime_config import (
-    get_vault_root,
     get_learning_state_path,
     get_learning_policy,
 )
-
-# ==============================
-# AI 學習治理閘門（最終封頂版）
-# ==============================
-
-# —— 動態載入治理參數（無硬編碼）——
-POLICY = get_learning_policy()
-MIN_SAMPLE_SIZE = POLICY["min_sample_size"]
-COOLDOWN_DAYS = POLICY["cooldown_days"]
-BLOCK_LEVEL = POLICY["guardian_block_level"]
-MAX_CONFIDENCE = POLICY["max_confidence_allow"]
-MIN_HITRATE = POLICY["min_hitrate_allow"]
+from shared.guardian_state import get_guardian_level
+from vault.vault_ai_judge import update_ai_weights
 
 
-def _load_learning_state():
+# =========================
+# State I/O
+# =========================
+def _load_learning_state() -> dict:
     path = get_learning_state_path()
     if not os.path.exists(path):
         return {}
@@ -38,73 +34,72 @@ def _save_learning_state(state: dict):
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
+# =========================
+# Learning Gate（核心）
+# =========================
 def can_learn(
     market: str,
     sample_size: int,
-    judge_result: dict,
-    recent_hitrate: float,
+    avg_confidence: float,
+    hit_rate: float,
 ) -> (bool, str):
     """
-    AI 是否允許進入學習的唯一判斷入口
+    P3-3 學習准入判斷（唯一標準）
     """
 
-    # 1️⃣ Guardian 風險層
+    policy = get_learning_policy()
+
+    # 1️⃣ Guardian 約制
     guardian_level = get_guardian_level()
-    if guardian_level >= BLOCK_LEVEL:
+    if guardian_level >= policy["guardian_block_level"]:
         return False, f"Guardian L{guardian_level} 阻擋學習"
 
-    # 2️⃣ 樣本數門檻
-    if sample_size < MIN_SAMPLE_SIZE:
-        return False, f"樣本不足 ({sample_size} < {MIN_SAMPLE_SIZE})"
+    # 2️⃣ 樣本數門
+    if sample_size < policy["min_sample_size"]:
+        return False, f"樣本不足 ({sample_size})"
 
-    # 3️⃣ Judge veto 門
-    if judge_result.get("veto"):
-        return False, "Judge veto 阻擋學習"
-
-    # 4️⃣ 信心過高但命中不足 → 互相約制
-    confidence = judge_result.get("confidence", 0.0)
-    if confidence >= MAX_CONFIDENCE and recent_hitrate < MIN_HITRATE:
-        return False, "高信心但命中率下降，啟動自我抑制"
-
-    # 5️⃣ 冷卻時間門
+    # 3️⃣ 冷卻門
     state = _load_learning_state()
     last = state.get(market, {}).get("last_learned")
     if last:
         last_dt = datetime.fromisoformat(last)
-        if datetime.now() - last_dt < timedelta(days=COOLDOWN_DAYS):
+        if datetime.now() - last_dt < timedelta(days=policy["cooldown_days"]):
             return False, "學習冷卻中"
+
+    # 4️⃣ 信心過高但命中下降 → 禁止學習
+    if avg_confidence >= policy["max_confidence_allow"] and hit_rate < policy["min_hitrate_allow"]:
+        return False, "信心過高且命中不足，觸發自我約制"
 
     return True, "允許學習"
 
 
+# =========================
+# 唯一學習入口
+# =========================
 def gated_update_ai_weights(
     market: str,
-    bridge_messages: list,
     summary: dict,
     sample_size: int,
-    recent_hitrate: float,
-    update_ai_weights_func,
+    avg_confidence: float,
+    hit_rate: float,
 ) -> bool:
     """
-    系統內唯一允許 AI 權重更新的入口（不可旁路）
+    🚨 系統唯一允許呼叫 update_ai_weights 的入口
     """
-
-    # 產生最終共識結果
-    judge_result = judge(bridge_messages)
 
     allowed, _ = can_learn(
         market=market,
         sample_size=sample_size,
-        judge_result=judge_result,
-        recent_hitrate=recent_hitrate,
+        avg_confidence=avg_confidence,
+        hit_rate=hit_rate,
     )
+
     if not allowed:
         return False
 
-    # 執行學習
-    update_ai_weights_func(market, summary, judge_result)
+    update_ai_weights(market, summary)
 
-    # 記錄學習時間（慢人格）
+    # 記錄學習時間
     state = _load_learning_state()
     state.setdefault(market, {})
     state[market]["last_learned"] = datetime.now().isoformat()
