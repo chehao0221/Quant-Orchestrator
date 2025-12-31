@@ -1,3 +1,14 @@
+import sys
+import os
+
+# 自動定位專案根目錄 (Quant-Orchestrator)
+# 取得目前檔案路徑的向上第三層 (scripts -> repos -> Stock-Genius-System -> Quant-Orchestrator)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
+# 現在可以安全 import 了
+from backtest_stats_builder import build_backtest_summary
 # ai_us_post.py
 from backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
