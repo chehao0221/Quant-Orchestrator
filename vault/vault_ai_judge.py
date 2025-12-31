@@ -1,86 +1,73 @@
-# vault_ai_judge.py
-# 最終決策整合 AI（封頂版）
+# Quant-Orchestrator/vault/vault_ai_judge.py
+# 最終決策整合 AI（封頂最終版｜可直接完整覆蓋）
 # 職責：
-# - 彙整多 AI 訊息
-# - 進行「互相約制」而非投票
-# - 不產生原始市場判斷
-# - 不寫 Vault、不學習、不發訊息
-# - 輸出結果只供 Orchestrator 使用
+# - 接收三方 AI 共識橋樑輸出
+# - 做「最終風險收斂與一致性裁決」
+# - 僅輸出結構化結果
+#
+# ❌ 不產生原始判斷
+# ❌ 不寫 Vault
+# ❌ 不發 Discord
+# ❌ 不學習
+#
+# ✅ 作為 Orchestrator 的「最後一道一致性門」
 
-from typing import Dict, List
+from typing import Dict, Any, List
 
 
-# -------------------------------
-# 公開 API
-# -------------------------------
-
-def judge(bridge_messages: List[Dict]) -> Dict:
+def judge(consensus: Dict[str, Any]) -> Dict[str, Any]:
     """
-    bridge_messages: List[{
-        "ai": str,
-        "payload": {
-            "score": float,      # 正向貢獻（-1 ~ +1）
-            "penalty": float,    # 懲罰（負值）
-            "veto": bool,        # 是否否決
-            "reason": str        # 解釋（可選）
+    consensus 來源：shared.ai_consensus_bridge.build_consensus()
+
+    預期輸入結構：
+    {
+        "confidence": float,
+        "veto": bool,
+        "guardian_level": int | None,
+        "signals": [str],
+        "reasons": [str],
+        "participants": [str]
+    }
+    """
+
+    # -------------------------------
+    # 基本防禦檢查（鐵律）
+    # -------------------------------
+    if not isinstance(consensus, dict):
+        raise ValueError("Invalid consensus payload")
+
+    confidence = float(consensus.get("confidence", 0.5))
+    veto = bool(consensus.get("veto", False))
+    guardian_level = consensus.get("guardian_level")
+    reasons: List[str] = consensus.get("reasons", [])
+    participants: List[str] = consensus.get("participants", [])
+
+    # -------------------------------
+    # Guardian 最終否決權（不可覆寫）
+    # -------------------------------
+    if veto:
+        return {
+            "allowed": False,
+            "confidence": 0.0,
+            "guardian_level": guardian_level,
+            "reason": "GUARDIAN_VETO",
+            "detail": reasons,
+            "participants": participants,
         }
-    }]
-    """
-
-    # 初始中性信心
-    confidence = 0.5
-    veto = False
-    reasons: List[str] = []
-
-    # 約制用統計
-    contributor_count = 0
-    veto_sources = []
-
-    for m in bridge_messages:
-        ai_name = m.get("ai", "UNKNOWN_AI")
-        payload = m.get("payload", {})
-
-        # veto 永遠優先
-        if payload.get("veto") is True:
-            veto = True
-            veto_sources.append(ai_name)
-            if payload.get("reason"):
-                reasons.append(f"{ai_name}:VETO({payload['reason']})")
-            else:
-                reasons.append(f"{ai_name}:VETO")
-
-        # score / penalty 為可選
-        if "score" in payload:
-            try:
-                confidence += float(payload["score"])
-                contributor_count += 1
-            except Exception:
-                pass
-
-        if "penalty" in payload:
-            try:
-                confidence += float(payload["penalty"])
-                contributor_count += 1
-            except Exception:
-                pass
-
-        if payload.get("reason") and not payload.get("veto"):
-            reasons.append(f"{ai_name}:{payload['reason']}")
 
     # -------------------------------
-    # 信心校準（互相約制核心）
+    # 信心邊界收斂（防爆衝）
     # -------------------------------
+    confidence = max(0.0, min(1.0, confidence))
 
-    # 多 AI 疊加時，進行貢獻稀釋，防止信心膨脹
-    if contributor_count > 1:
-        confidence = 0.5 + (confidence - 0.5) / contributor_count
-
-    # 強制邊界
-    confidence = round(max(min(confidence, 1.0), 0.0), 4)
-
+    # -------------------------------
+    # 最終一致性輸出
+    # -------------------------------
     return {
-        "confidence": confidence,
-        "veto": veto,
-        "veto_sources": veto_sources,
-        "reasons": reasons
+        "allowed": True,
+        "confidence": round(confidence, 4),
+        "guardian_level": guardian_level,
+        "reason": "CONSENSUS_OK",
+        "detail": reasons,
+        "participants": participants,
     }
