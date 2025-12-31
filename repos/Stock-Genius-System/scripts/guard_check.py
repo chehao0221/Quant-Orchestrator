@@ -1,6 +1,3 @@
-# 路徑：
-# Quant-Orchestrator/repos/Stock-Genius-System/scripts/guard_check.py
-#
 # Guardian 狀態橋接檢查（完整版・最終封頂）
 # ❌ 不做股票分析
 # ❌ 不寫 Vault
