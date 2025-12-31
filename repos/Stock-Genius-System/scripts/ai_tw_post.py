@@ -1,8 +1,12 @@
-# --- Orchestrator Root 注入 ---
+# --- Orchestrator Root 注入（修正版：向上追溯至專案根目錄） ---
 import sys
 from pathlib import Path
-ORCH_ROOT = Path(__file__).resolve().parents[0]
-if str(ORCH_ROOT) not in sys.path: sys.path.insert(0, str(ORCH_ROOT))
+
+# 這裡設定向上跳三層，直到回到 E:\QuantProject 根目錄
+# 這樣 Python 才能找到 backtest_stats_builder 和 utils
+ORCH_ROOT = Path(__file__).resolve().parents[3] 
+if str(ORCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(ORCH_ROOT))
 # ----------------------------
 
 from backtest_stats_builder import build_backtest_summary
