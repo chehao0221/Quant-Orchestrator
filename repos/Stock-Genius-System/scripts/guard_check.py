@@ -1,30 +1,102 @@
+# 路徑：
+# Quant-Orchestrator/repos/Stock-Genius-System/scripts/guard_check.py
+#
+# Guardian 狀態橋接檢查（完整版・最終封頂）
+# ❌ 不做股票分析
+# ❌ 不寫 Vault
+# ❌ 不發 Discord
+# ✅ 只讀 Guardian 狀態
+# ✅ 供 Orchestrator / Stock-Genius 查詢
+# ✅ 支援未來多 AI 共識 / 約制擴充
+
+import os
 import json
-import sys
-from pathlib import Path
+from datetime import datetime, timedelta
 
-# 以「本檔案位置」為基準，保證不會迷路
-BASE_DIR = Path(__file__).resolve().parents[3]
-STATE_FILE = BASE_DIR / "shared" / "guardian_state.json"
+VAULT_ROOT = r"E:\Quant-Vault"
+GUARDIAN_STATE_PATH = os.path.join(
+    VAULT_ROOT,
+    "LOCKED_DECISION",
+    "guardian",
+    "guardian_state.json"
+)
 
-def check_guardian(task_type: str = "MARKET"):
+# === 預設 Guardian 安全狀態（當檔案不存在時）===
+DEFAULT_STATE = {
+    "freeze": False,
+    "level": "L0",
+    "reason": None,
+    "updated_at": None
+}
+
+# === 冷卻保護（防止狀態抖動）===
+FREEZE_MAX_AGE_MINUTES = 180  # 超過 3 小時視為過期，自動解凍
+
+
+def _load_guardian_state() -> dict:
     """
-    task_type:
-    - MARKET   → 市場解讀 / AI 預測 / 發 Discord
-    - BACKTEST → 回測 / 歷史分析（Freeze 仍允許）
+    只讀 Guardian 狀態檔
     """
-
-    if not STATE_FILE.exists():
-        return
+    if not os.path.exists(GUARDIAN_STATE_PATH):
+        return DEFAULT_STATE.copy()
 
     try:
-        state = json.loads(STATE_FILE.read_text())
+        with open(GUARDIAN_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {**DEFAULT_STATE, **data}
     except Exception:
-        return
+        # 任何解析錯誤，回退安全狀態
+        return DEFAULT_STATE.copy()
 
-    level = state.get("level", 1)
-    freeze = state.get("freeze", False)
-    mode = state.get("mode", "HARD")  # 預設 HARD，向下相容
 
-    if freeze and level >= 4 and task_type == "MARKET":
-        print(f"[Guardian] HARD FREEZE at L{level}. Skip MARKET task.")
-        sys.exit(0)   # 一定是 0
+def _is_freeze_expired(state: dict) -> bool:
+    """
+    檢查 freeze 是否過期（防止永久鎖死）
+    """
+    if not state.get("freeze"):
+        return False
+
+    ts = state.get("updated_at")
+    if not ts:
+        return False
+
+    try:
+        updated = datetime.fromisoformat(ts)
+    except Exception:
+        return False
+
+    return datetime.now() - updated > timedelta(minutes=FREEZE_MAX_AGE_MINUTES)
+
+
+def guardian_freeze_check() -> dict:
+    """
+    🔒 Guardian 狀態檢查（對外唯一入口）
+
+    回傳格式固定，不可擴權：
+    {
+        "freeze": bool,
+        "level": str,
+        "reason": str | None,
+        "source": "guardian",
+        "checked_at": ISO8601
+    }
+    """
+    state = _load_guardian_state()
+
+    # 若 freeze 過期，自動視為解除（不回寫，只影響判斷）
+    if _is_freeze_expired(state):
+        return {
+            "freeze": False,
+            "level": state.get("level", "L0"),
+            "reason": "freeze_expired_auto_release",
+            "source": "guardian",
+            "checked_at": datetime.now().isoformat()
+        }
+
+    return {
+        "freeze": bool(state.get("freeze")),
+        "level": state.get("level", "L0"),
+        "reason": state.get("reason"),
+        "source": "guardian",
+        "checked_at": datetime.now().isoformat()
+    }
