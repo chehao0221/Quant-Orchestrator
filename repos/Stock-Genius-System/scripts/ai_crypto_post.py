@@ -1,25 +1,17 @@
-import os
-import sys
+# ai_crypto_post.py
+# CRYPTO 市場 AI 發文整合器（最終封頂版）
 
-PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../../")
-)
-sys.path.insert(0, PROJECT_ROOT)
+from backtest_stats_builder import build_backtest_summary
+from report_backtest_formatter import format_backtest_section
+from discord_notifier import send_market_message
 
-from utils.vault_root_guard import assert_vault_ready
-from scripts.guard_check import guardian_freeze_check
 
-DISCORD_WEBHOOK_CRYPTO = os.getenv("DISCORD_WEBHOOK_CRYPTO")
-MARKET = "CRYPTO"
+def post_crypto_backtest_report(webhook_env: str):
+    stats = build_backtest_summary(market="CRYPTO", days=5)
+    content = format_backtest_section(stats)
 
-def main():
-    assert_vault_ready(DISCORD_WEBHOOK_CRYPTO)
-
-    state = guardian_freeze_check()
-    if state.get("freeze"):
-        return
-
-    print(f"[{MARKET}] AI report ready")
-
-if __name__ == "__main__":
-    main()
+    send_market_message(
+        webhook=webhook_env,
+        fingerprint="CRYPTO_BACKTEST_5D",
+        content=content
+    )
