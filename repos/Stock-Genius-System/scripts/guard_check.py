@@ -1,17 +1,3 @@
-# -------------------------------------------------
-# Compatibility Adapter（封頂穩定層）
-# -------------------------------------------------
-# 提供舊系統 / scripts 統一使用的 check_guardian 介面
-# 不影響核心 Guardian 架構
-
-from shared.guardian_state import get_guardian_level
-
-
-def check_guardian(required_level: int = 1) -> bool:
-    """
-    回傳是否允許執行（True = 放行, False = 阻擋）
-    """
-    return get_guardian_level() >= required_level
 # Guardian 狀態橋接檢查（完整版・最終封頂）
 
 # ❌ 不做股票分析
@@ -203,3 +189,20 @@ def guardian_freeze_check() -> dict:
         "level": state.get("level", "L0"),
 
         "reason": state.get("reason"),
+
+# -------------------------------------------------
+# Compatibility Adapter（封頂穩定層）
+# -------------------------------------------------
+# 提供舊系統 / scripts 統一使用的 check_guardian 介面
+# 不影響核心 Guardian 架構
+
+from shared.guardian_state import get_guardian_level
+
+
+def check_guardian(required_level: int = 1) -> bool:
+    """
+    回傳是否允許執行（True = 放行, False = 阻擋）
+    """
+    return get_guardian_level() >= required_level
+
+        
