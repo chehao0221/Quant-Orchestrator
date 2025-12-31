@@ -1,4 +1,4 @@
-# ai_tw_post.py
+# ai_us_post.py
 # 台股 5 日回測報告發送器（封頂最終版）
 # 職責：
 # - 只做 orchestration
