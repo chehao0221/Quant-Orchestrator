@@ -24,4 +24,4 @@ def post_us_backtest_report(days: int = 5):
 
 
 if __name__ == "__main__":
-    post_US_backtest_report()
+    post_us_backtest_report()
