@@ -1,28 +1,20 @@
 # ai_jp_post.py
-# 日股 5 日回測報告發送器（封頂最終版）
-# 職責：
-# - 只做 orchestration
-# - 不計算、不排版、不學習
 
-import os
+# ===== Root 注入（鐵律）=====
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+import bootstrap  # noqa
 
-# === 注入 Orchestrator Root ===
-BASE_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..")
-)
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
+# ===== 正式程式 =====
 from vault.backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
 from utils.discord_notifier import send_market_message
 
 
-def post_jp_backtest_report(days: int = 5) -> None:
+def post_jp_backtest_report(days: int = 5):
     stats = build_backtest_summary(market="JP", days=days)
     content = format_backtest_section(stats)
-
     send_market_message(
         webhook="DISCORD_WEBHOOK_JP",
         fingerprint=f"JP_BACKTEST_{days}D",
@@ -31,4 +23,4 @@ def post_jp_backtest_report(days: int = 5) -> None:
 
 
 if __name__ == "__main__":
-    post_jp_backtest_report(days=5)
+    post_jp_backtest_report()
