@@ -1,39 +1,76 @@
 # guardian_state.py
-# Guardian 狀態唯一讀取介面（封頂最終版）
+# Guardian 狀態管理器（封頂最終版）
 # 職責：
-# - 提供 Guardian 目前風險等級（L0–L5）
-# - 僅讀取狀態，不做任何決策、不發訊息、不寫 Vault
-# - 供 Orchestrator / Learning Gate / 共識層使用
+# - 提供全系統統一的 Guardian 風險等級
+# - 控制顯示 / 噪音抑制（L3 以下不對外顯示）
+# - 作為所有學習 / 共識 / 發文的唯一風險來源
+# ❌ 不分析市場 ❌ 不寫 Vault ❌ 不發 Discord
 
-import os
-import json
-from typing import Optional
+from typing import Dict
 
-# Guardian 狀態來源（環境變數指定，不寫死路徑）
-GUARDIAN_STATE_PATH = os.environ.get("GUARDIAN_STATE_PATH")
+# =================================================
+# Guardian 等級鐵律
+# =================================================
+# L0–L2：正常 / 輕微波動（不顯示）
+# L3：警戒
+# L4：高風險（阻斷學習）
+# L5：系統級危機（全面封鎖）
 
+_DISPLAY_THRESHOLD = 3      # L3 以下不顯示（你已確認）
+_BLOCK_LEARNING_LEVEL = 4   # ≥ L4 禁止學習
+_MAX_LEVEL = 5
 
-def get_guardian_level(default: int = 0) -> Optional[int]:
+# =================================================
+# 內部狀態（由 Guardian 系統實際回填）
+# =================================================
+
+_GUARDIAN_STATE: Dict[str, int] = {
+    "level": 0
+}
+
+# =================================================
+# 對外 API
+# =================================================
+
+def set_guardian_level(level: int) -> None:
     """
-    取得 Guardian 目前風險等級
-    - 回傳 0–5
-    - 若狀態不存在或讀取失敗，回傳 default
+    僅 Guardian 系統可呼叫
     """
+    if level < 0:
+        level = 0
+    if level > _MAX_LEVEL:
+        level = _MAX_LEVEL
+    _GUARDIAN_STATE["level"] = level
 
-    if not GUARDIAN_STATE_PATH:
-        return default
 
-    if not os.path.isfile(GUARDIAN_STATE_PATH):
-        return default
+def get_guardian_level() -> int:
+    """
+    全系統統一讀取入口
+    """
+    return int(_GUARDIAN_STATE.get("level", 0))
 
-    try:
-        with open(GUARDIAN_STATE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return default
 
-    level = data.get("level")
-    if isinstance(level, int) and 0 <= level <= 5:
-        return level
+def is_learning_blocked() -> bool:
+    """
+    Learning Gate 專用
+    """
+    return get_guardian_level() >= _BLOCK_LEARNING_LEVEL
 
-    return default
+
+def should_display_status() -> bool:
+    """
+    UI / Discord / Report 使用
+    """
+    return get_guardian_level() >= _DISPLAY_THRESHOLD
+
+
+def export_guardian_status() -> Dict[str, int]:
+    """
+    對外輸出（不含任何判斷）
+    """
+    level = get_guardian_level()
+    return {
+        "level": level,
+        "display": level >= _DISPLAY_THRESHOLD,
+        "learning_blocked": level >= _BLOCK_LEARNING_LEVEL
+    }
