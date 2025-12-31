@@ -1,10 +1,12 @@
 # backtest_stats_builder.py
-# 回測統計彙整器（終極封頂縫合版）
+# 回測統計彙整器（終極封頂版）
 # 職責：
-# - 透過時間視窗精準讀取歷史預測（避免樣本擠壓與失真）
-# - 統計樣本數、命中率、平均信心
-# - 指標級歸因分析（供 AI Learning Gate 使用）
-# - 信心分級統計（🟢🟡🔴，供 Discord 報告顯示）
+# - 精準時間窗回測統計（避免樣本擠壓）
+# - 命中率 / 平均信心 / 樣本數
+# - 指標級歸因（供 AI Learning Gate 使用）
+# - 信心分級統計（🟢🟡🔴，供報告顯示）
+# ✔ 只讀 Vault
+# ❌ 不學習 ❌ 不寫權重 ❌ 不做市場判斷
 
 import os
 import json
@@ -12,10 +14,9 @@ from datetime import date, timedelta
 from typing import Dict, Any, Iterator
 
 # =================================================
-# 環境（鐵律：鎖定實體外接硬碟 E 槽路徑）
+# Vault Root（鐵律）
 # =================================================
 VAULT_ROOT = r"E:\Quant-Vault"
-
 
 # =================================================
 # 內部工具：時間窗回測檔案迭代器
@@ -23,22 +24,20 @@ VAULT_ROOT = r"E:\Quant-Vault"
 
 def _iter_backtest_files(market: str, days: int) -> Iterator[str]:
     """
-    只讀取指定天數內的回測檔案
-    檔名格式預期：SYMBOL_YYYY-MM-DD.json
+    僅讀取指定天數內的回測檔案
+    檔名格式：SYMBOL_YYYY-MM-DD.json
     """
-    # 路徑拼接：E:\Quant-Vault\LOCKED_RAW\backtest\{market}
     base = os.path.join(VAULT_ROOT, "LOCKED_RAW", "backtest", market)
     if not os.path.isdir(base):
         return iter(())
 
     cutoff = date.today() - timedelta(days=days)
-
     paths = []
+
     for fn in os.listdir(base):
         if not fn.endswith(".json"):
             continue
         try:
-            # 解析檔名中的日期部分
             _, d_str = fn.rsplit("_", 1)
             file_date = date.fromisoformat(d_str.replace(".json", ""))
         except Exception:
@@ -47,10 +46,8 @@ def _iter_backtest_files(market: str, days: int) -> Iterator[str]:
         if file_date >= cutoff:
             paths.append(os.path.join(base, fn))
 
-    # 排序確保穩定性（從新到舊）
     for p in sorted(paths, reverse=True):
         yield p
-
 
 # =================================================
 # 公開 API
@@ -71,7 +68,7 @@ def build_backtest_summary(market: str, days: int = 5) -> Dict[str, Any]:
         "by_confidence_band": {
             "high": {"hits": 0, "total": 0, "rate": 0.0},  # >= 0.6
             "mid":  {"hits": 0, "total": 0, "rate": 0.0},  # 0.3–0.6
-            "low":  {"hits": 0, "total": 0, "rate": 0.0}   # < 0.3
+            "low":  {"hits": 0, "total": 0, "rate": 0.0},  # < 0.3
         }
     }
 
@@ -84,14 +81,12 @@ def build_backtest_summary(market: str, days: int = 5) -> Dict[str, Any]:
 
         pred = data.get("pred")
         actual = data.get("actual")
-        # 信心度預設 0.5
         confidence = float(data.get("confidence", 0.5))
         indicators = data.get("indicators", ["__global__"])
 
         if pred is None or actual is None:
             continue
 
-        # 基礎計數
         results["sample_size"] += 1
         results["confidence_sum"] += confidence
 
@@ -111,7 +106,7 @@ def build_backtest_summary(market: str, days: int = 5) -> Dict[str, Any]:
         if is_hit:
             results["by_confidence_band"][band]["hits"] += 1
 
-        # 指標歸因分析
+        # 指標歸因
         for ind in indicators:
             results["by_indicator"].setdefault(ind, {"hit": 0, "miss": 0})
             if is_hit:
@@ -119,9 +114,6 @@ def build_backtest_summary(market: str, days: int = 5) -> Dict[str, Any]:
             else:
                 results["by_indicator"][ind]["miss"] += 1
 
-    # -------------------------------------------------
-    # 最終比例計算
-    # -------------------------------------------------
     total = results["sample_size"]
     if total > 0:
         results["hit_rate"] = round(results["hit_count"] / total, 4)
