@@ -1,16 +1,26 @@
-# --- Orchestrator Root 自動定位（封頂最終版）---
+# --- Orchestrator Root 注入（GitHub Actions / 本機 通殺版）---
+import os
 import sys
 from pathlib import Path
 
-current = Path(__file__).resolve()
-for parent in current.parents:
-    if (parent / "backtest_stats_builder.py").exists():
-        if str(parent) not in sys.path:
-            sys.path.insert(0, str(parent))
-        break
+# 1️⃣ GitHub Actions / 本機 workspace
+root = os.environ.get("GITHUB_WORKSPACE")
+if root:
+    root_path = Path(root)
 else:
-    raise RuntimeError("❌ 找不到 backtest_stats_builder.py（Orchestrator Root 注入失敗）")
-# ------------------------------------------------
+    # fallback：本機直接往上找 Quant-Orchestrator
+    root_path = Path(__file__).resolve()
+    for p in root_path.parents:
+        if (p / "backtest_stats_builder.py").exists():
+            root_path = p
+            break
+    else:
+        raise RuntimeError("❌ 無法定位 Quant-Orchestrator Root")
+
+if str(root_path) not in sys.path:
+    sys.path.insert(0, str(root_path))
+# ------------------------------------------------------------
+
 
 
 from backtest_stats_builder import build_backtest_summary
