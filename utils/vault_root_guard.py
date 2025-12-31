@@ -22,7 +22,7 @@ def _system_halt(webhook: str, fingerprint: str, message: str):
     - 一定 exit
     """
     send_system_message(
-        webhook=webhook,
+        webhook_url=webhook,
         fingerprint=fingerprint,
         content=message
     )
@@ -37,7 +37,6 @@ def assert_vault_ready(webhook: str):
     - ❌ 不給 AI 結論
     """
 
-    # 1️⃣ Vault Root 是否存在（你原本就有，保留）
     if not os.path.exists(VAULT_ROOT):
         msg = (
             "🛑 系統安全中止\n\n"
@@ -54,7 +53,6 @@ def assert_vault_ready(webhook: str):
             message=msg
         )
 
-    # 2️⃣ 基本結構檢查（不檢查是否有檔案）
     for d in REQUIRED_DIRS:
         path = os.path.join(VAULT_ROOT, d)
         if not os.path.isdir(path):
@@ -73,7 +71,6 @@ def assert_vault_ready(webhook: str):
                 message=msg
             )
 
-    # 3️⃣ 最低權限檢查（只讀即可）
     if not os.access(VAULT_ROOT, os.R_OK):
         msg = (
             "🛑 系統安全中止\n\n"
@@ -87,5 +84,4 @@ def assert_vault_ready(webhook: str):
             message=msg
         )
 
-    # 4️⃣ 通過檢查（什麼都不做，讓主流程繼續）
     return True
