@@ -1,58 +1,86 @@
-# 最終決策整合 AI（不產生原始判斷）
-# 職責：整合、制衡、封頂，不給市場方向
+# vault_ai_judge.py
+# 最終決策整合 AI（封頂版）
+# 職責：
+# - 彙整多 AI 訊息
+# - 進行「互相約制」而非投票
+# - 不產生原始市場判斷
+# - 不寫 Vault、不學習、不發訊息
+# - 輸出結果只供 Orchestrator 使用
 
-from typing import List, Dict
+from typing import Dict, List
 
 
-MAX_CONFIDENCE = 1.0
-MIN_CONFIDENCE = 0.0
-
-MAX_SINGLE_AI_SCORE = 0.2     # 單一 AI 最大影響力
-MAX_TOTAL_SCORE = 0.5         # 全體 AI 最大疊加幅度
-
+# -------------------------------
+# 公開 API
+# -------------------------------
 
 def judge(bridge_messages: List[Dict]) -> Dict:
+    """
+    bridge_messages: List[{
+        "ai": str,
+        "payload": {
+            "score": float,      # 正向貢獻（-1 ~ +1）
+            "penalty": float,    # 懲罰（負值）
+            "veto": bool,        # 是否否決
+            "reason": str        # 解釋（可選）
+        }
+    }]
+    """
+
+    # 初始中性信心
     confidence = 0.5
     veto = False
-    reasons = []
+    reasons: List[str] = []
 
-    total_delta = 0.0
+    # 約制用統計
+    contributor_count = 0
+    veto_sources = []
 
     for m in bridge_messages:
+        ai_name = m.get("ai", "UNKNOWN_AI")
         payload = m.get("payload", {})
-        ai_name = m.get("ai", "UNKNOWN")
 
-        # 1️⃣ VETO 絕對優先
-        if payload.get("veto"):
+        # veto 永遠優先
+        if payload.get("veto") is True:
             veto = True
-            reasons.append(f"{ai_name}:VETO({payload.get('reason')})")
-            continue
+            veto_sources.append(ai_name)
+            if payload.get("reason"):
+                reasons.append(f"{ai_name}:VETO({payload['reason']})")
+            else:
+                reasons.append(f"{ai_name}:VETO")
 
-        delta = 0.0
+        # score / penalty 為可選
+        if "score" in payload:
+            try:
+                confidence += float(payload["score"])
+                contributor_count += 1
+            except Exception:
+                pass
 
-        # 2️⃣ Score（單 AI 封頂）
-        if isinstance(payload.get("score"), (int, float)):
-            delta += max(
-                -MAX_SINGLE_AI_SCORE,
-                min(MAX_SINGLE_AI_SCORE, payload["score"])
-            )
+        if "penalty" in payload:
+            try:
+                confidence += float(payload["penalty"])
+                contributor_count += 1
+            except Exception:
+                pass
 
-        # 3️⃣ Penalty（必須為負值，否則忽略）
-        if isinstance(payload.get("penalty"), (int, float)) and payload["penalty"] < 0:
-            delta += payload["penalty"]
-
-        # 4️⃣ 累計全體影響（總封頂）
-        total_delta += delta
-        total_delta = max(-MAX_TOTAL_SCORE, min(MAX_TOTAL_SCORE, total_delta))
-
-        if payload.get("reason"):
+        if payload.get("reason") and not payload.get("veto"):
             reasons.append(f"{ai_name}:{payload['reason']}")
 
-    confidence += total_delta
-    confidence = max(MIN_CONFIDENCE, min(MAX_CONFIDENCE, confidence))
+    # -------------------------------
+    # 信心校準（互相約制核心）
+    # -------------------------------
+
+    # 多 AI 疊加時，進行貢獻稀釋，防止信心膨脹
+    if contributor_count > 1:
+        confidence = 0.5 + (confidence - 0.5) / contributor_count
+
+    # 強制邊界
+    confidence = round(max(min(confidence, 1.0), 0.0), 4)
 
     return {
         "confidence": confidence,
         "veto": veto,
+        "veto_sources": veto_sources,
         "reasons": reasons
     }
