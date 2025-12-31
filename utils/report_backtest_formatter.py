@@ -1,66 +1,78 @@
-# report_backtest_formatter.py
-# 回測報告排版器（終極封頂穩定版）
+# schedule_backtest_reports.py
+# 全市場回測報告自動排程器（終極封頂版）
 # 職責：
-# - 僅負責「字串排版」
-# - 固定欄寬，永久不跑版（交易筆數再多也不擠壓）
-# - 專供 Discord / 報告使用
-# ❌ 不計算 ❌ 不讀檔 ❌ 不學習 ❌ 不依賴市場別
+# - 定時觸發 5 日回測準確率報告
+# - 統一調度 post_all_backtest_reports
+# - 可被 cron / systemd / 任意 orchestrator 呼叫
+# ❌ 不計算 ❌ 不排版 ❌ 不學習
 
-from typing import Dict
+import time
+from datetime import datetime
+from typing import Optional
 
-# -------------------------------------------------
-# 固定欄寬設定（鐵律：避免擠壓）
-# -------------------------------------------------
-
-LEFT_WIDTH = 18   # 左欄固定寬
-RIGHT_WIDTH = 18  # 右欄固定寬
+from post_all_backtest_reports import post_all_backtest_reports
 
 
 # -------------------------------------------------
-# 公開 API
+# 排程鐵律設定（集中管理）
 # -------------------------------------------------
 
-def format_backtest_section(stats: Dict) -> str:
+# 每日執行時間（24h 制，UTC）
+RUN_HOUR_UTC = 1    # 01:00 UTC（美股收盤後、亞洲盤前）
+RUN_MINUTE = 0
+
+# 回測天數（全市場一致）
+BACKTEST_DAYS = 5
+
+# 失敗重試等待（秒）
+RETRY_SLEEP = 60
+
+
+# -------------------------------------------------
+# 內部工具
+# -------------------------------------------------
+
+def _seconds_until_next_run(
+    hour: int,
+    minute: int,
+    now: Optional[datetime] = None
+) -> int:
+    now = now or datetime.utcnow()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    if target <= now:
+        # 已過當日時間，排到明天
+        target = target.replace(day=now.day + 1)
+
+    return int((target - now).total_seconds())
+
+
+# -------------------------------------------------
+# 主排程循環
+# -------------------------------------------------
+
+def run_scheduler() -> None:
     """
-    將 backtest_stats_builder 的輸出
-    穩定格式化為 Discord 友善字串
+    常駐型排程（給 container / VM / systemd 使用）
     """
+    while True:
+        try:
+            sleep_sec = _seconds_until_next_run(
+                RUN_HOUR_UTC,
+                RUN_MINUTE
+            )
+            time.sleep(sleep_sec)
 
-    sample = stats.get("sample_size", 0)
-    hit_rate = f"{round(stats.get('hit_rate', 0.0) * 100, 1)}%"
+            post_all_backtest_reports(days=BACKTEST_DAYS)
 
-    bands = stats.get("by_confidence_band", {})
-    high = f"{round(bands.get('high', {}).get('rate', 0.0) * 100):.0f}%"
-    mid  = f"{round(bands.get('mid', {}).get('rate', 0.0) * 100):.0f}%"
-    low  = f"{round(bands.get('low', {}).get('rate', 0.0) * 100):.0f}%"
+        except Exception as e:
+            # ⚠️ 排程不中斷，避免單次錯誤卡死
+            time.sleep(RETRY_SLEEP)
 
-    # ⚠️ 目前未接績效模組，保留穩定占位（未來可無痛升級）
-    avg_return = "—"
-    max_dd = "—"
 
-    # -------------------------------------------------
-    # 穩定排版（所有欄位固定寬度）
-    # -------------------------------------------------
+# -------------------------------------------------
+# CLI 入口
+# -------------------------------------------------
 
-    lines = [
-        "",
-        "────────────────────────────────────",
-        "📊 近 5 日回測結算",
-        "",
-        f"{'交易筆數：':<10}{str(sample) + ' 筆':<{LEFT_WIDTH}}"
-        f"{'信心分級命中率':<{RIGHT_WIDTH}}",
-
-        f"{'實際命中：':<10}{hit_rate:<{LEFT_WIDTH}}"
-        f"🟢 高信心 (>60%) ：{high}",
-
-        f"{'平均報酬：':<10}{avg_return:<{LEFT_WIDTH}}"
-        f"🟡 中信心 (30–60%)：{mid}",
-
-        f"{'最大回撤：':<10}{max_dd:<{LEFT_WIDTH}}"
-        f"🔴 低信心 (<30%) ：{low}",
-
-        "",
-        "⚠️ 模型為機率推估，僅供研究參考，非投資建議。"
-    ]
-
-    return "\n".join(lines)
+if __name__ == "__main__":
+    run_scheduler()
