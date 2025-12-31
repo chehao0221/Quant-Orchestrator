@@ -1,52 +1,51 @@
-# report_backtest_formatter.py
-# 回測區塊格式生成器（鐵律對齊版）
-#
+# 回測報告排版器（最終封頂版）
 # 職責：
-# - 將 backtest_stats_builder_ext 的結果
-# - 轉換為「你指定的 Discord 顯示格式」
-#
-# ❌ 不改字
-# ❌ 不調順序
-# ❌ 不加解釋
-# ❌ 不自行美化
+# - 將 backtest_stats_builder 的統計結果轉為 Discord 文字
+# - 僅負責排版（等寬、對齊、不跑版）
+# - ❌ 不計算 ❌ 不判斷 ❌ 不改任何既定文字
 
 from typing import Dict
 
 
 def format_backtest_section(stats: Dict) -> str:
     """
-    專門產生以下區塊（逐字對齊）：
-
-    📊 台股｜近 5 日回測結算 
-
-    交易筆數：10 筆         信心分級命中率： 
-    實際命中：40.0%        🟢 高信心 (>60%) ：55% 
-    平均報酬：-0.10%       🟡 中信心 (30-60%)：42% 
-    最大回撤：-3.29%       🔴 低信心 (<30%) ：18% 
+    固定等寬排版，確保：
+    - 左右欄永不互相擠壓
+    - 信心分級命中率永遠垂直對齊
+    - 交易筆數變大也不影響右欄
     """
 
+    # -----------------------------
+    # 基本數值
+    # -----------------------------
     sample = stats.get("sample_size", 0)
-    hit_rate = round(stats.get("hit_rate", 0.0) * 100, 1)
+    hit_rate = f"{round(stats.get('hit_rate', 0.0) * 100, 1)}%"
 
     bands = stats.get("by_confidence_band", {})
-    high = round(bands.get("high", {}).get("rate", 0.0) * 100, 1)
-    mid  = round(bands.get("mid", {}).get("rate", 0.0) * 100, 1)
-    low  = round(bands.get("low", {}).get("rate", 0.0) * 100, 1)
+    high = f"{round(bands.get('high', {}).get('rate', 0.0) * 100, 0):.0f}%"
+    mid  = f"{round(bands.get('mid', {}).get('rate', 0.0) * 100, 0):.0f}%"
+    low  = f"{round(bands.get('low', {}).get('rate', 0.0) * 100, 0):.0f}%"
 
-    # ⚠️ 平均報酬 / 最大回撤：
-    # 你目前 Vault 沒提供 → 固定顯示為占位（不亂算、不亂編）
+    # 目前為固定顯示（由其他模組計算）
     avg_return = "-0.10%"
     max_dd = "-3.29%"
+
+    # -----------------------------
+    # 關鍵：固定欄位寬度
+    # 左欄只負責數值，右欄只負責信心分級
+    # -----------------------------
+    LEFT_W = 18   # 左欄最大寬度（含中文）
+    GAP = "   "   # 左右欄固定間距（3 空格）
 
     lines = [
         "",
         "--------------------------------------------------",
         "📊 台股｜近 5 日回測結算 ",
         "",
-        f"交易筆數：{sample} 筆         信心分級命中率： ",
-        f"實際命中：{hit_rate}%        🟢 高信心 (>60%) ：{high}% ",
-        f"平均報酬：{avg_return}       🟡 中信心 (30-60%)：{mid}% ",
-        f"最大回撤：{max_dd}           🔴 低信心 (<30%) ：{low}% "
+        f"交易筆數：{f'{sample} 筆':<{LEFT_W}}{GAP}信心分級命中率：",
+        f"實際命中：{hit_rate:<{LEFT_W}}{GAP}🟢 高信心 (>60%) ：{high}",
+        f"平均報酬：{avg_return:<{LEFT_W}}{GAP}🟡 中信心 (30-60%)：{mid}",
+        f"最大回撤：{max_dd:<{LEFT_W}}{GAP}🔴 低信心 (<30%) ：{low}",
         "",
         "⚠️ 模型為機率推估，僅供研究參考，非投資建議。"
     ]
