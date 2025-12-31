@@ -1,25 +1,20 @@
-# --- Orchestrator Root 注入（GitHub Actions / 本機 通殺版）---
-import os
+# --- Quant-Orchestrator Root 強制注入（最終封頂版）---
 import sys
 from pathlib import Path
 
-# 1️⃣ GitHub Actions / 本機 workspace
-root = os.environ.get("GITHUB_WORKSPACE")
-if root:
-    root_path = Path(root)
-else:
-    # fallback：本機直接往上找 Quant-Orchestrator
-    root_path = Path(__file__).resolve()
-    for p in root_path.parents:
-        if (p / "backtest_stats_builder.py").exists():
-            root_path = p
-            break
-    else:
-        raise RuntimeError("❌ 無法定位 Quant-Orchestrator Root")
+# ai_tw_post.py
+# repos/Stock-Genius-System/scripts/ai_tw_post.py
+# → Orchestrator root = parents[3]
 
-if str(root_path) not in sys.path:
-    sys.path.insert(0, str(root_path))
-# ------------------------------------------------------------
+ORCHESTRATOR_ROOT = Path(__file__).resolve().parents[3]
+
+if not (ORCHESTRATOR_ROOT / "backtest_stats_builder.py").exists():
+    raise RuntimeError(
+        f"❌ Orchestrator Root 定位失敗：{ORCHESTRATOR_ROOT}"
+    )
+
+sys.path.insert(0, str(ORCHESTRATOR_ROOT))
+# ----------------------------------------------------
 
 
 
