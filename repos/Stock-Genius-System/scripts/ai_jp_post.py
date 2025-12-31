@@ -1,18 +1,27 @@
-# ===== Orchestrator Root 注入（鐵律）=====
+# ai_jp_post.py
+# 台股 5 日回測報告發送器（封頂最終版）
+# 職責：
+# - 只做 orchestration
+# - 不計算、不排版、不學習
+# - 透過 vault / report formatter / discord notifier 串接
+
+import os
 import sys
-from pathlib import Path
 
-ORCHESTRATOR_ROOT = Path(__file__).resolve().parents[3]
-if str(ORCHESTRATOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(ORCHESTRATOR_ROOT))
+# === 注入 Orchestrator Root（避免 CI / Runner 找不到模組）===
+BASE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-# ===== 正常 imports =====
+# === 必要模組 ===
 from vault.backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
 from utils.discord_notifier import send_market_message
 
 
-def post_jp_backtest_report(days: int = 5):
+def post_jp_backtest_report(days: int = 5) -> None:
     stats = build_backtest_summary(market="JP", days=days)
     content = format_backtest_section(stats)
 
@@ -24,4 +33,4 @@ def post_jp_backtest_report(days: int = 5):
 
 
 if __name__ == "__main__":
-    post_jp_backtest_report()
+    post_jp_backtest_report(days=5)
