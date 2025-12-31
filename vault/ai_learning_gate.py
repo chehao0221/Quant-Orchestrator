@@ -2,52 +2,73 @@ import os
 import json
 from datetime import datetime, timedelta
 
-from vault_ai_judge import update_ai_weights
+from vault_ai_judge import judge
 from shared.guardian_state import get_guardian_level
-
-VAULT_ROOT = r"E:\Quant-Vault"
-
-# 學習治理參數（鐵律層）
-MIN_SAMPLE_SIZE = 30              # 樣本太少不學
-COOLDOWN_DAYS = 5                 # 防止頻繁學歪
-BLOCK_LEVEL = 4                   # Guardian >= L4 禁止學習
-
-LEARNING_STATE_PATH = os.path.join(
-    VAULT_ROOT,
-    "LOCKED_DECISION",
-    "horizon",
-    "learning_state.json"
+from shared.runtime_config import (
+    get_vault_root,
+    get_learning_state_path,
+    get_learning_policy,
 )
 
+# ==============================
+# AI 學習治理閘門（最終封頂版）
+# ==============================
+
+# —— 動態載入治理參數（無硬編碼）——
+POLICY = get_learning_policy()
+MIN_SAMPLE_SIZE = POLICY["min_sample_size"]
+COOLDOWN_DAYS = POLICY["cooldown_days"]
+BLOCK_LEVEL = POLICY["guardian_block_level"]
+MAX_CONFIDENCE = POLICY["max_confidence_allow"]
+MIN_HITRATE = POLICY["min_hitrate_allow"]
+
+
 def _load_learning_state():
-    if not os.path.exists(LEARNING_STATE_PATH):
+    path = get_learning_state_path()
+    if not os.path.exists(path):
         return {}
-    with open(LEARNING_STATE_PATH, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def _save_learning_state(state: dict):
-    os.makedirs(os.path.dirname(LEARNING_STATE_PATH), exist_ok=True)
-    with open(LEARNING_STATE_PATH, "w", encoding="utf-8") as f:
+    path = get_learning_state_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
-def can_learn(market: str, sample_size: int) -> (bool, str):
+
+def can_learn(
+    market: str,
+    sample_size: int,
+    judge_result: dict,
+    recent_hitrate: float,
+) -> (bool, str):
     """
-    判斷是否允許 AI 進行學習（P3-3 核心）
+    AI 是否允許進入學習的唯一判斷入口
     """
 
-    # 1️⃣ Guardian 風險門
+    # 1️⃣ Guardian 風險層
     guardian_level = get_guardian_level()
     if guardian_level >= BLOCK_LEVEL:
         return False, f"Guardian L{guardian_level} 阻擋學習"
 
-    # 2️⃣ 樣本數門
+    # 2️⃣ 樣本數門檻
     if sample_size < MIN_SAMPLE_SIZE:
         return False, f"樣本不足 ({sample_size} < {MIN_SAMPLE_SIZE})"
 
-    # 3️⃣ 冷卻時間門
+    # 3️⃣ Judge veto 門
+    if judge_result.get("veto"):
+        return False, "Judge veto 阻擋學習"
+
+    # 4️⃣ 信心過高但命中不足 → 互相約制
+    confidence = judge_result.get("confidence", 0.0)
+    if confidence >= MAX_CONFIDENCE and recent_hitrate < MIN_HITRATE:
+        return False, "高信心但命中率下降，啟動自我抑制"
+
+    # 5️⃣ 冷卻時間門
     state = _load_learning_state()
     last = state.get(market, {}).get("last_learned")
-
     if last:
         last_dt = datetime.fromisoformat(last)
         if datetime.now() - last_dt < timedelta(days=COOLDOWN_DAYS):
@@ -55,20 +76,33 @@ def can_learn(market: str, sample_size: int) -> (bool, str):
 
     return True, "允許學習"
 
+
 def gated_update_ai_weights(
     market: str,
+    bridge_messages: list,
     summary: dict,
-    sample_size: int
+    sample_size: int,
+    recent_hitrate: float,
+    update_ai_weights_func,
 ) -> bool:
     """
-    唯一允許呼叫 update_ai_weights 的入口
+    系統內唯一允許 AI 權重更新的入口（不可旁路）
     """
 
-    allowed, reason = can_learn(market, sample_size)
+    # 產生最終共識結果
+    judge_result = judge(bridge_messages)
+
+    allowed, _ = can_learn(
+        market=market,
+        sample_size=sample_size,
+        judge_result=judge_result,
+        recent_hitrate=recent_hitrate,
+    )
     if not allowed:
         return False
 
-    update_ai_weights(market, summary)
+    # 執行學習
+    update_ai_weights_func(market, summary, judge_result)
 
     # 記錄學習時間（慢人格）
     state = _load_learning_state()
