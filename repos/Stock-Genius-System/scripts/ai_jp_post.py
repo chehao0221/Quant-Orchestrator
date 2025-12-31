@@ -24,4 +24,4 @@ def post_jp_backtest_report(days: int = 5):
 
 
 if __name__ == "__main__":
-    post_JP_backtest_report()
+    post_jp_backtest_report()
