@@ -12,7 +12,7 @@ from report_backtest_formatter import format_backtest_section
 from utils.discord_notifier import send_market_message
 
 
-def post_US_backtest_report(days: int = 5):
+def post_us_backtest_report(days: int = 5):
     stats = build_backtest_summary(market="US", days=days)
     content = format_backtest_section(stats)
 
