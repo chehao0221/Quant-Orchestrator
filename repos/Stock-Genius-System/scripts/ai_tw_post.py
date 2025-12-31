@@ -1,33 +1,16 @@
-# 台股 AI Discord 發文器（最終封頂版）
-# 職責：
-# - 呼叫回測統計
-# - 使用 report_backtest_formatter 排版
-# - 發送 Discord
-# ❌ 不計算 ❌ 不學習 ❌ 不硬編路徑
-
+# post_tw_report.py
 from backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
 from utils.discord_notifier import send_market_message
 
-
 def post_tw_backtest_report(days: int = 5) -> bool:
-    """
-    台股近 N 日回測報告發送入口
-    """
-
-    stats = build_backtest_summary(
-        market="TW",
-        days=days
-    )
-
+    stats = build_backtest_summary(market="TW", days=days)
     report = format_backtest_section(stats)
-
     return send_market_message(
         webhook="DISCORD_WEBHOOK_TW",
         fingerprint=f"TW_BACKTEST_{days}D",
         content=report
     )
-
 
 if __name__ == "__main__":
     post_tw_backtest_report()
