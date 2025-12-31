@@ -1,12 +1,23 @@
+# Vault 根目錄安全守門（封頂最終版）
+# ✅ 不寫死任何實體路徑
+# ✅ Vault Root 只來自環境變數
+# ✅ 只做「存在 / 結構 / 權限」檢查
+# ❌ 不寫 Vault
+# ❌ 不刪資料
+# ❌ 不產生 AI 判斷
+# ❌ 不介入 Guardian / Stock-Genius 邏輯
+
 import os
 import sys
-from datetime import datetime
-from discord_system_notifier import send_system_message
+from utils.discord_notifier import send_system_message
 
-# === Vault 實體根目錄（鐵律）===
-VAULT_ROOT = r"E:\Quant-Vault"
 
-# === 系統最小結構需求（只檢查存在）===
+# ==============================
+# 環境設定（鐵律）
+# ==============================
+
+VAULT_ROOT_ENV = "QUANT_VAULT_ROOT"  # 例如設為 E:\Quant-Vault
+
 REQUIRED_DIRS = [
     "LOCKED_RAW",
     "LOCKED_DECISION",
@@ -15,46 +26,80 @@ REQUIRED_DIRS = [
     "LOG",
 ]
 
+
+# ==============================
+# 內部工具
+# ==============================
+
 def _system_halt(webhook: str, fingerprint: str, message: str):
     """
     系統級中止：
-    - 一定發 Discord
+    - 一定嘗試送 Discord
     - 一定 exit
     """
     send_system_message(
-        webhook_url=webhook,
+        webhook=webhook,
         fingerprint=fingerprint,
         content=message
     )
     sys.exit(1)
 
-def assert_vault_ready(webhook: str):
+
+# ==============================
+# 對外 API（鐵律入口）
+# ==============================
+
+def assert_vault_ready(webhook: str) -> bool:
     """
-    🚨 鐵律入口：
-    - 所有 AI / 發文 / 判斷腳本的第一行必須呼叫
-    - ❌ 不寫 Vault
-    - ❌ 不刪資料
-    - ❌ 不給 AI 結論
+    🚨 Vault 安全入口（所有 AI / 發文 / Orchestrator 第一行必須呼叫）
+
+    僅檢查：
+    - Vault Root 是否存在
+    - 必要資料夾是否齊全
+    - 是否具備讀取權限
+
+    不做：
+    - 寫入
+    - 刪除
+    - AI 判斷
     """
 
-    if not os.path.exists(VAULT_ROOT):
+    vault_root = os.environ.get(VAULT_ROOT_ENV)
+
+    # 1️⃣ 是否設定 Vault Root
+    if not vault_root:
         msg = (
             "🛑 系統安全中止\n\n"
-            f"找不到 Vault 路徑：{VAULT_ROOT}\n\n"
+            f"未設定環境變數：{VAULT_ROOT_ENV}\n\n"
+            "請先在系統或 CI 中設定 Vault 實體路徑。\n\n"
+            "系統已停止，未產生任何 AI 結論。"
+        )
+        _system_halt(
+            webhook=webhook,
+            fingerprint="vault_root_env_missing",
+            message=msg
+        )
+
+    # 2️⃣ Vault Root 是否存在
+    if not os.path.exists(vault_root):
+        msg = (
+            "🛑 系統安全中止\n\n"
+            f"找不到 Vault 路徑：\n{vault_root}\n\n"
             "可能原因：\n"
             "- 外接硬碟未掛載\n"
-            "- 磁碟代號改變\n"
+            "- 路徑錯誤\n"
             "- 權限異常\n\n"
             "系統已停止，未產生任何 AI 結論。"
         )
         _system_halt(
             webhook=webhook,
-            fingerprint=f"vault_missing_{VAULT_ROOT}",
+            fingerprint=f"vault_missing_{vault_root}",
             message=msg
         )
 
+    # 3️⃣ 基本結構檢查（只檢查存在）
     for d in REQUIRED_DIRS:
-        path = os.path.join(VAULT_ROOT, d)
+        path = os.path.join(vault_root, d)
         if not os.path.isdir(path):
             msg = (
                 "🛑 系統安全中止\n\n"
@@ -71,10 +116,11 @@ def assert_vault_ready(webhook: str):
                 message=msg
             )
 
-    if not os.access(VAULT_ROOT, os.R_OK):
+    # 4️⃣ 最低權限檢查（唯讀即可）
+    if not os.access(vault_root, os.R_OK):
         msg = (
             "🛑 系統安全中止\n\n"
-            f"Vault 存在但無讀取權限：\n{VAULT_ROOT}\n\n"
+            f"Vault 存在但無讀取權限：\n{vault_root}\n\n"
             "請檢查磁碟權限或系統政策。\n\n"
             "系統已停止，未產生任何 AI 結論。"
         )
@@ -84,4 +130,5 @@ def assert_vault_ready(webhook: str):
             message=msg
         )
 
+    # 5️⃣ 全部通過（不回傳任何狀態資訊）
     return True
