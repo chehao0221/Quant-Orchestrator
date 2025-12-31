@@ -1,50 +1,39 @@
-import json
+# guardian_state.py
+# Guardian 狀態唯一讀取介面（封頂最終版）
+# 職責：
+# - 提供 Guardian 目前風險等級（L0–L5）
+# - 僅讀取狀態，不做任何決策、不發訊息、不寫 Vault
+# - 供 Orchestrator / Learning Gate / 共識層使用
+
 import os
-from datetime import datetime, timedelta
+import json
+from typing import Optional
 
-GUARDIAN_STATE_FILE = os.path.join(
-    os.path.dirname(__file__),
-    "guardian_state.json"
-)
+# Guardian 狀態來源（環境變數指定，不寫死路徑）
+GUARDIAN_STATE_PATH = os.environ.get("GUARDIAN_STATE_PATH")
 
-# Guardian 狀態有效時間（防止讀到過期狀態）
-MAX_STATE_AGE = timedelta(minutes=120)
 
-class GuardianStateError(Exception):
-    pass
-
-def load_guardian_state():
+def get_guardian_level(default: int = 0) -> Optional[int]:
     """
-    唯一合法讀取 Guardian 狀態的入口
+    取得 Guardian 目前風險等級
+    - 回傳 0–5
+    - 若狀態不存在或讀取失敗，回傳 default
     """
-    if not os.path.exists(GUARDIAN_STATE_FILE):
-        raise GuardianStateError("Guardian 狀態檔不存在")
+
+    if not GUARDIAN_STATE_PATH:
+        return default
+
+    if not os.path.isfile(GUARDIAN_STATE_PATH):
+        return default
 
     try:
-        with open(GUARDIAN_STATE_FILE, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except Exception as e:
-        raise GuardianStateError(f"Guardian 狀態讀取失敗：{e}")
-
-    # 必要欄位檢查
-    for key in ("level", "updated_at"):
-        if key not in state:
-            raise GuardianStateError(f"Guardian 狀態缺少欄位：{key}")
-
-    # 時間戳檢查
-    try:
-        updated_at = datetime.fromisoformat(state["updated_at"])
+        with open(GUARDIAN_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
     except Exception:
-        raise GuardianStateError("Guardian updated_at 格式錯誤")
+        return default
 
-    if datetime.utcnow() - updated_at > MAX_STATE_AGE:
-        raise GuardianStateError("Guardian 狀態已過期")
+    level = data.get("level")
+    if isinstance(level, int) and 0 <= level <= 5:
+        return level
 
-    return state
-
-def get_guardian_level():
-    """
-    給 Stock-Genius 使用的安全入口
-    """
-    state = load_guardian_state()
-    return state["level"]
+    return default
