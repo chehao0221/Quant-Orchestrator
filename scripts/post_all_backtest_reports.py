@@ -6,7 +6,7 @@
 # - 同步回測「事實層」至 Guardian / Genius
 # ❌ 不計算 ❌ 不排版 ❌ 不學習 ❌ 不做決策
 
-from backtest_stats_builder import build_backtest_summary
+from vault.backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
 from utils.discord_notifier import send_market_message
 from bridge.backtest_sync_bridge import sync_backtest_summary
