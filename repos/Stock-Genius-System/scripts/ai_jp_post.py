@@ -1,17 +1,16 @@
 # ai_jp_post.py
-# JP 市場 AI 發文整合器（最終封頂版）
-
 from backtest_stats_builder import build_backtest_summary
 from report_backtest_formatter import format_backtest_section
 from discord_notifier import send_market_message
 
-
-def post_jp_backtest_report(webhook_env: str):
-    stats = build_backtest_summary(market="JP", days=5)
+def post_jp_backtest_report(days: int = 5):
+    stats = build_backtest_summary(market="JP", days=days)
     content = format_backtest_section(stats)
-
     send_market_message(
-        webhook=webhook_env,
-        fingerprint="JP_BACKTEST_5D",
+        webhook="DISCORD_WEBHOOK_JP",
+        fingerprint=f"JP_BACKTEST_{days}D",
         content=content
     )
+
+if __name__ == "__main__":
+    post_jp_backtest_report(days=5)
