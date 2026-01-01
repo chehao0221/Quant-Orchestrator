@@ -1,85 +1,75 @@
 # core/notifier_v2.py
-import hashlib
 import json
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
-
-import requests
-
-
-@dataclass(frozen=True)
-class NotifierConfig:
-    webhook_env: str = "DISCORD_WEBHOOK_URL"
-    timeout_sec: int = 10
-    max_retries: int = 3
-    backoff_sec: float = 1.5
+from urllib import request
 
 
 class NotifierV2:
     """
     可驗證通知：
-    - payload hash（防重複）
-    - response code 記錄（回執）
-    - retry + backoff
+    - 送出 webhook
+    - 記錄 response code / body（節錄）
+    - 寫入 TEMP_CACHE/system_audit_state.json 防重複
     """
 
-    def __init__(self, vault_root: str, config: NotifierConfig | None = None):
+    def __init__(self, vault_root: str):
         self.vault_root = Path(vault_root).resolve()
-        self.cfg = config or NotifierConfig()
         self.audit_path = self.vault_root / "TEMP_CACHE" / "system_audit_state.json"
         self.audit_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def send(self, webhook_url: str, payload: Dict, context: Dict) -> Dict:
+    def send(self, webhook_url: str, payload: Dict, context: Optional[Dict] = None) -> Dict:
+        context = context or {}
+        now = int(time.time())
+
+        # 簡單防重複：同一天同內容不重送
         payload_hash = self._hash(payload)
-        audit = self._load_audit()
-
-        # 防重複（同 hash 不再發）
+        audit = self._read_audit()
         last_hash = audit.get("last_payload_hash")
-        if last_hash == payload_hash:
-            return {"sent": False, "reason": "dedup", "payload_hash": payload_hash, "audit": audit}
+        if last_hash == payload_hash and audit.get("date") == context.get("date"):
+            return {"sent": False, "reason": "duplicate", "payload_hash": payload_hash}
 
-        # 送出（含 retry）
-        resp_info = None
-        ok = False
-        for i in range(1, self.cfg.max_retries + 1):
-            try:
-                r = requests.post(webhook_url, json=payload, timeout=self.cfg.timeout_sec)
-                resp_info = {"status_code": r.status_code, "text": (r.text or "")[:500]}
-                if 200 <= r.status_code < 300:
-                    ok = True
-                    break
-            except Exception as e:
-                resp_info = {"error": str(e)}
-            time.sleep(self.cfg.backoff_sec * i)
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = request.Request(
+            webhook_url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
-        # 寫回 audit（回執）
-        new_audit = {
-            "last_payload_hash": payload_hash if ok else last_hash,
-            "last_attempt_ts": int(time.time()),
-            "last_ok": ok,
-            "last_response": resp_info,
-            "context": context,
-        }
-        self._save_audit(new_audit)
+        try:
+            with request.urlopen(req, timeout=15) as resp:
+                code = int(resp.getcode())
+                body = resp.read(500).decode("utf-8", errors="replace")
+        except Exception as e:
+            result = {"sent": False, "reason": f"error:{e}", "payload_hash": payload_hash}
+            self._write_audit({"timestamp": now, "date": context.get("date"), "last_payload_hash": payload_hash, "last_result": result})
+            return result
 
-        return {"sent": ok, "payload_hash": payload_hash, "response": resp_info, "audit": new_audit}
+        result = {"sent": (200 <= code < 300), "status_code": code, "body": body, "payload_hash": payload_hash}
+        self._write_audit({"timestamp": now, "date": context.get("date"), "last_payload_hash": payload_hash, "last_result": result})
+        return result
 
-    def _load_audit(self) -> Dict:
-        if self.audit_path.exists():
-            try:
-                return json.loads(self.audit_path.read_text(encoding="utf-8"))
-            except Exception:
-                return {}
-        return {}
+    def _read_audit(self) -> Dict:
+        if not self.audit_path.exists():
+            return {}
+        try:
+            return json.loads(self.audit_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
 
-    def _save_audit(self, audit: Dict) -> None:
-        tmp = self.audit_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+    def _write_audit(self, obj: Dict) -> None:
+        tmp = self.audit_path.with_suffix(".json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
         tmp.replace(self.audit_path)
 
     @staticmethod
     def _hash(payload: Dict) -> str:
-        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        return hashlib.sha256(raw).hexdigest()
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        # 不用加密庫也可，但這裡保持簡單穩定
+        h = 0
+        for ch in raw:
+            h = (h * 131 + ord(ch)) % 2_147_483_647
+        return str(h)
