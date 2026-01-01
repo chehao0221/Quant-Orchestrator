@@ -1,146 +1,170 @@
 # core/guardian_v2.py
 import json
-import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Literal, Tuple
+from typing import Dict, Literal, Optional
 
 from core.vault_access_guard import VaultAccessGuard
 
-Market = Literal["TW", "US", "JP", "CRYPTO"]
-GuardianState = Literal["PASS", "FREEZE", "REJECT"]
+Decision = Literal["PASS", "REJECT", "FREEZE"]
 
 
 @dataclass(frozen=True)
-class GuardianConfig:
-    # 硬規則（不可破）
-    min_eval_score: float = 0.35          # 評估分數太低 → REJECT
-    freeze_eval_score: float = 0.45       # 分數偏低 → FREEZE（不允許學習）
-    max_consecutive_freeze: int = 7       # 連續 freeze 次數過多 → REJECT（避免永凍/壞死）
+class GuardianThresholds:
+    # 硬規則（任何一條不過 → REJECT / FREEZE）
+    hard_score_min: float = 0.20          # 單一市場最低分
+    hard_drawdown_min: float = -0.20      # 回撤底線（低於此視為嚴重）
+    hard_fail_streak_max: int = 5         # 連敗上限（由 evaluation 提供/或缺省）
 
-    # 軟規則（策略互評制衡；若你還沒接 council，也不會報錯）
-    min_soft_score_to_learn: float = 0.0  # soft score < 0 → FREEZE（不允許學習）
-
-    # state persistence
-    guardian_state_path: str = "LOCKED_DECISION/guardian/guardian_state.json"
+    # 軟規則（用於 PASS / FREEZE）
+    pass_score: float = 0.60              # 平均分 ≥ pass_score 才 PASS
+    freeze_score: float = 0.45            # 平均分介於 freeze_score~pass_score → FREEZE
 
 
 class GuardianV2:
     """
-    Guardian V2（終極封頂）
-    ----------------------
-    目標：
-    1) 硬規則先判：確保不會亂學
-    2) 軟規則再判：若策略互評偏負面，暫停學習
-    3) 全部結果落盤（透過 VaultAccessGuard）可回溯、可稽核
+    Guardian V2（終極封頂版）
+    -------------------------
+    - 只讀評估結果 / 投票 / 候選權重
+    - 做出 PASS / REJECT / FREEZE
+    - 並把 guardian_state.json 寫入 Quant-Vault/LOCKED_DECISION（透過 VaultAccessGuard）
     """
 
-    def __init__(self, vault_root: str, cfg: GuardianConfig | None = None):
-        self.vault_root = vault_root
-        self.cfg = cfg or GuardianConfig()
-        self.guard = VaultAccessGuard(vault_root)
+    def __init__(self, vault_root: str, thresholds: Optional[GuardianThresholds] = None):
+        self.vault_root = Path(vault_root)
+        self.thresholds = thresholds or GuardianThresholds()
+        self.guard = VaultAccessGuard(str(self.vault_root))
 
-    # ---------- public ----------
+        self.guardian_state_path = "LOCKED_DECISION/guardian/guardian_state.json"
 
-    def run(
+    def evaluate(
         self,
-        date_key: str,
-        eval_scores: Dict[str, float],
-        eval_evidence: Dict | None = None,
-        soft_votes: Dict[str, float] | None = None,
+        date_yyyy_mm_dd: str,
+        evaluation: Dict,
+        council_votes: Dict,
+        proposed_weights: Dict,
+        extra: Optional[Dict] = None,
     ) -> Dict:
         """
-        eval_scores: 例如 {"TW":0.62,"US":0.55,"JP":0.50,"CRYPTO":0.41}
-        soft_votes: council 互評分數（可選）例如 {"TW":0.1,"US":0.0,...}
+        evaluation 期望格式（由 evaluation_engine 提供）：
+        {
+          "TW": {"score": 0.62, "drawdown": -0.05, "fail_streak": 0, ...},
+          "US": {...},
+          ...
+        }
         """
 
-        eval_evidence = eval_evidence or {}
-        soft_votes = soft_votes or {}
+        # ---- 基本防呆 ----
+        if not isinstance(evaluation, dict) or not evaluation:
+            return self._finalize(
+                decision="REJECT",
+                date=date_yyyy_mm_dd,
+                reason="evaluation_missing_or_invalid",
+                evaluation=evaluation or {},
+                extra={"council_votes": council_votes, "proposed_weights": proposed_weights, **(extra or {})},
+            )
 
-        prev_state = self._read_prev_state()
+        # ---- 第一層：硬規則（任一市場觸發 → REJECT/FREEZE）----
+        for market, info in evaluation.items():
+            score = float(info.get("score", 0.0))
+            dd = float(info.get("drawdown", 0.0))
+            fail_streak = int(info.get("fail_streak", 0))
 
-        freeze_map: Dict[Market, bool] = {m: False for m in ["TW", "US", "JP", "CRYPTO"]}
-        reasons: Dict[str, str] = {}
-        hard_flags: Dict[str, str] = {}
+            if score < self.thresholds.hard_score_min:
+                return self._finalize(
+                    decision="REJECT",
+                    date=date_yyyy_mm_dd,
+                    reason=f"{market}_score_below_hard_min",
+                    evaluation=evaluation,
+                    extra={"market": market, "score": score, "threshold": self.thresholds.hard_score_min,
+                           "council_votes": council_votes, "proposed_weights": proposed_weights, **(extra or {})},
+                )
 
-        # 1) 硬規則（先判）
-        state: GuardianState = "PASS"
-        for m in freeze_map.keys():
-            s = float(eval_scores.get(m, 0.0))
-            if s < self.cfg.min_eval_score:
-                freeze_map[m] = True
-                hard_flags[m] = f"REJECT: eval_score<{self.cfg.min_eval_score}"
-                state = "REJECT"
-                reasons[m] = f"{m} 評估分數過低（{s:.3f}）→ 拒絕學習"
-            elif s < self.cfg.freeze_eval_score:
-                freeze_map[m] = True
-                hard_flags[m] = f"FREEZE: eval_score<{self.cfg.freeze_eval_score}"
-                if state != "REJECT":
-                    state = "FREEZE"
-                reasons[m] = f"{m} 評估分數偏低（{s:.3f}）→ 冷凍學習"
+            # 回撤太嚴重 → FREEZE（不一定 REJECT，讓系統冷靜）
+            if dd < self.thresholds.hard_drawdown_min:
+                return self._finalize(
+                    decision="FREEZE",
+                    date=date_yyyy_mm_dd,
+                    reason=f"{market}_drawdown_below_hard_min",
+                    evaluation=evaluation,
+                    extra={"market": market, "drawdown": dd, "threshold": self.thresholds.hard_drawdown_min,
+                           "council_votes": council_votes, "proposed_weights": proposed_weights, **(extra or {})},
+                )
 
-        # 2) 軟規則（再判）：只有在硬規則沒有 REJECT 時才考慮
-        # soft_votes 不存在就跳過（不會影響）
-        if state != "REJECT" and soft_votes:
-            soft_total = 0.0
-            for m, v in soft_votes.items():
-                try:
-                    soft_total += float(v)
-                except Exception:
-                    continue
+            if fail_streak >= self.thresholds.hard_fail_streak_max:
+                return self._finalize(
+                    decision="FREEZE",
+                    date=date_yyyy_mm_dd,
+                    reason=f"{market}_fail_streak_too_high",
+                    evaluation=evaluation,
+                    extra={"market": market, "fail_streak": fail_streak, "threshold": self.thresholds.hard_fail_streak_max,
+                           "council_votes": council_votes, "proposed_weights": proposed_weights, **(extra or {})},
+                )
 
-            if soft_total < self.cfg.min_soft_score_to_learn:
-                # 不改 freeze_map（freeze_map 表示硬風控）；但整體 state 轉 FREEZE
-                state = "FREEZE"
-                reasons["SOFT"] = f"互評總分 {soft_total:.3f} < {self.cfg.min_soft_score_to_learn:.3f} → 暫停學習"
+        # ---- 第二層：軟規則（看平均分，決定 PASS / FREEZE / REJECT）----
+        scores = []
+        for info in evaluation.values():
+            try:
+                scores.append(float(info.get("score", 0.0)))
+            except Exception:
+                scores.append(0.0)
 
-        # 3) 連續 freeze 過多 → REJECT（避免系統卡死）
-        freeze_count = int(prev_state.get("meta", {}).get("consecutive_freeze", 0))
-        if state == "FREEZE":
-            freeze_count += 1
+        avg_score = sum(scores) / max(len(scores), 1)
+
+        if avg_score >= self.thresholds.pass_score:
+            decision: Decision = "PASS"
+            reason = "avg_score_pass"
+        elif avg_score >= self.thresholds.freeze_score:
+            decision = "FREEZE"
+            reason = "avg_score_freeze"
         else:
-            freeze_count = 0
+            decision = "REJECT"
+            reason = "avg_score_reject"
 
-        if freeze_count >= self.cfg.max_consecutive_freeze and state != "REJECT":
-            state = "REJECT"
-            reasons["SYSTEM"] = f"連續 FREEZE 達 {freeze_count} 次 → 系統拒絕進一步學習（避免永凍）"
+        return self._finalize(
+            decision=decision,
+            date=date_yyyy_mm_dd,
+            reason=reason,
+            evaluation=evaluation,
+            extra={"avg_score": avg_score, "thresholds": self.thresholds.__dict__,
+                   "council_votes": council_votes, "proposed_weights": proposed_weights, **(extra or {})},
+        )
 
-        out = {
-            "date": date_key,
-            "state": state,
-            "freeze": freeze_map,
-            "reasons": reasons,
-            "hard_flags": hard_flags,
-            "soft_votes": soft_votes,
-            "eval_scores": eval_scores,
-            "evidence": eval_evidence,
-            "meta": {
-                "consecutive_freeze": freeze_count,
-                "timestamp": int(time.time()),
-                "version": "guardian_v2_final_120",
-            },
+    def _finalize(
+        self,
+        decision: Decision,
+        date: str,
+        reason: str,
+        evaluation: Dict,
+        extra: Dict,
+    ) -> Dict:
+        """
+        統一輸出 + 寫入 Quant-Vault/LOCKED_DECISION/guardian/guardian_state.json
+        """
+        record = {
+            "date": date,
+            "decision": decision,
+            "reason": reason,
+            "evaluation": evaluation,
+            "extra": extra or {},
+            "timestamp": int(datetime.utcnow().timestamp()),
         }
 
-        # 4) 寫入 LOCKED_DECISION（唯一合法入口：VaultAccessGuard）
+        # guardian_state（治理狀態）— 必須走 VaultAccessGuard
+        state_payload = {
+            "date": date,
+            "state": decision,
+            "freeze": (decision == "FREEZE"),
+            "reason": reason,
+            "timestamp": record["timestamp"],
+        }
+
         self.guard.write_json(
             role="guardian",
-            relative_path=self.cfg.guardian_state_path,
-            payload=out,
-            reason=f"guardian_v2::{state}",
+            relative_path=self.guardian_state_path,
+            payload=state_payload,
+            reason=f"guardian_v2:{reason}",
         )
-        return out
 
-    # ---------- internal ----------
-
-    def _read_prev_state(self) -> Dict:
-        """
-        讀取上次 guardian_state（若不存在，回空）
-        注意：讀取不需要 guard；guard 只管寫入
-        """
-        p = Path(self.vault_root) / self.cfg.guardian_state_path
-        try:
-            if p.exists():
-                return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-        return {}
+        return record
