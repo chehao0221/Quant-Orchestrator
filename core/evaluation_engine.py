@@ -1,7 +1,7 @@
 # core/evaluation_engine.py
 import json
 from pathlib import Path
-from typing import Dict, Literal
+from typing import Dict, Literal, Tuple
 
 
 Market = Literal["TW", "US", "JP", "CRYPTO"]
@@ -14,68 +14,57 @@ class EvaluationError(Exception):
 class EvaluationEngine:
     """
     客觀績效評估引擎（只讀）
-    ------------------------
-    - 只讀 TEMP_CACHE/snapshot
-    - 不寫任何 Vault
-    - 不接受策略輸入
-    - 輸出可解釋的分數
+    讀取：TEMP_CACHE/snapshot/YYYY-MM-DD/<MARKET>.json
+    輸出：
+      - eval_scores: {market: score(0~1)}
+      - eval_evidence: {market: {score, components, metrics}}
     """
 
-    MARKET_FILES: Dict[Market, str] = {
-        "TW": "tw.json",
-        "US": "us.json",
-        "JP": "jp.json",
-        "CRYPTO": "crypto.json",
-    }
-
-    # 評分權重（總和 = 1.0）
     WEIGHTS = {
         "return": 0.30,
         "drawdown": 0.30,
-        "volatility": 0.20,
-        "win_rate": 0.10,
+        "volatility": 0.15,
+        "win_rate": 0.15,
         "confidence": 0.10,
     }
 
     def __init__(self, vault_root: str):
         self.vault_root = Path(vault_root).resolve()
-        self.snapshot_root = (self.vault_root / "TEMP_CACHE" / "snapshot").resolve()
 
-        if not self.snapshot_root.exists():
-            raise EvaluationError(f"snapshot 目錄不存在: {self.snapshot_root}")
+    def run(self, date_key: str) -> Tuple[Dict[Market, float], Dict]:
+        results = self.evaluate_day(date_key)
+        scores = {m: float(results[m]["score"]) for m in results}
+        return scores, results
 
-    # ---------- public API ----------
+    def evaluate_day(self, date_key: str) -> Dict[Market, Dict]:
+        base = self.vault_root / "TEMP_CACHE" / "snapshot" / date_key
+        markets = ["TW", "US", "JP", "CRYPTO"]
 
-    def evaluate_day(self, date_yyyy_mm_dd: str) -> Dict[Market, Dict]:
-        """
-        評估指定日期所有市場
-        回傳：
-          { market: { score, components } }
-        """
-        day_dir = (self.snapshot_root / date_yyyy_mm_dd).resolve()
-        if not day_dir.exists():
-            raise EvaluationError(f"找不到 snapshot 日期資料: {date_yyyy_mm_dd}")
-
-        results: Dict[Market, Dict] = {}
-
-        for market, fname in self.MARKET_FILES.items():
-            path = day_dir / fname
-            if not path.exists():
-                # 缺市場資料 → 不評分（由 Guardian 決定怎麼處理）
+        out: Dict[Market, Dict] = {}
+        for m in markets:
+            p = base / f"{m}.json"
+            if not p.exists():
+                # 缺報告：直接給 0 分（保守）
+                out[m] = {
+                    "score": 0.0,
+                    "components": {},
+                    "metrics": {},
+                    "reason": f"missing_report:{p}",
+                }
                 continue
 
-            report = self._load_report(path)
-            components = self._score_components(report["metrics"])
-            total_score = self._aggregate_score(components)
+            report = self._load_report(p)
+            metrics = report.get("metrics", {})
+            comps = self._score_components(metrics)
+            total = self._aggregate_score(comps)
 
-            results[market] = {
-                "score": round(total_score, 6),
-                "components": {k: round(v, 6) for k, v in components.items()}
+            out[m] = {
+                "score": round(total, 6),
+                "components": {k: round(v, 6) for k, v in comps.items()},
+                "metrics": metrics,
             }
 
-        return results
-
-    # ---------- internal ----------
+        return out
 
     @staticmethod
     def _load_report(path: Path) -> dict:
@@ -86,14 +75,11 @@ class EvaluationEngine:
             raise EvaluationError(f"無法讀取報告檔案: {path} ({e})")
 
     def _score_components(self, metrics: dict) -> Dict[str, float]:
-        """
-        將原始 metrics 正規化成 0~1 分數
-        """
-        r = float(metrics["return"])
-        dd = float(metrics["drawdown"])
-        vol = float(metrics["volatility"])
-        wr = float(metrics["win_rate"])
-        conf = float(metrics["confidence"])
+        r = float(metrics.get("return", 0.0))
+        dd = float(metrics.get("drawdown", 1.0))
+        vol = float(metrics.get("volatility", 1.0))
+        wr = float(metrics.get("win_rate", 0.0))
+        conf = float(metrics.get("confidence", 0.0))
 
         return {
             "return": self._score_return(r),
@@ -106,39 +92,31 @@ class EvaluationEngine:
     def _aggregate_score(self, comps: Dict[str, float]) -> float:
         score = 0.0
         for k, w in self.WEIGHTS.items():
-            score += comps[k] * w
+            score += comps.get(k, 0.0) * w
         return self._clamp01(score)
-
-    # ---------- scoring rules ----------
 
     @staticmethod
     def _score_return(r: float) -> float:
-        """
-        報酬不是線性獎勵，避免短期爆衝
-        """
-        if r <= 0:
+        # -5% => 0, +5% => 1（保守線性）
+        lo, hi = -0.05, 0.05
+        if r <= lo:
             return 0.0
-        if r >= 0.05:
+        if r >= hi:
             return 1.0
-        return r / 0.05
+        return (r - lo) / (hi - lo)
 
     @staticmethod
     def _score_drawdown(dd: float) -> float:
-        """
-        回撤越小越好
-        dd 通常是負值
-        """
-        if dd >= 0:
+        # 0% => 1, 30% => 0
+        if dd <= 0:
             return 1.0
-        if dd <= -0.10:
+        if dd >= 0.30:
             return 0.0
-        return 1.0 + (dd / 0.10)
+        return 1.0 - (dd / 0.30)
 
     @staticmethod
     def _score_volatility(vol: float) -> float:
-        """
-        波動越低越好
-        """
+        # 0 => 1, 5% => 0
         if vol <= 0:
             return 1.0
         if vol >= 0.05:
