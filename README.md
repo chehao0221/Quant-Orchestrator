@@ -215,4 +215,5 @@ Quant-Vault/
 Quant-Orchestrator 是一套  
 **可長期自動運行、風控清楚、對外安全的 AI 市場研究系統。**
 
+python tools\vault_init.py
 
