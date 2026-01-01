@@ -75,56 +75,45 @@ Quant-Orchestrator/
 ---
 💾 E:\Quant-Vault（外接硬碟實體結構｜可直接複製）
 ```
-E:\Quant-Vault
-├─ LOCKED_RAW/
-│  ├─ market_raw/
-│  ├─ black_swan/
-│  └─ backtest/
+Quant-Vault/
+├─ LOCKED_RAW/ # 原始不可變資料（事實層）
+│ ├─ market_raw/ # 市場原始資料
+│ ├─ black_swan/ # 黑天鵝事件紀錄
+│ └─ backtest/ # 回測原始輸出（不可重寫）
+│ ├─ TW/
+│ ├─ US/
+│ ├─ JP/
+│ └─ CRYPTO/
 │
-├─ LOCKED_DECISION/
-│  ├─ guardian/
-│  ├─ risk_policy/
-│  └─ horizon/
+├─ LOCKED_DECISION/ # 決策與治理狀態（可回溯）
+│ ├─ guardian/
+│ │ └─ guardian_state.json # Guardian 等級 / freeze 狀態
+│ │
+│ ├─ risk_policy/
+│ │ └─ ai_weights.json # AI 權重（僅允許治理流程寫入）
+│ │
+│ └─ horizon/
+│ └─ learning_state.json # AI 學習冷卻 / 記錄
 │
-├─ STOCK_DB/
-│  ├─ TW/
-│  │  ├─ universe/
-│  │  ├─ shortlist/
-│  │  ├─ core_watch/
-│  │  ├─ history/
-│  │  └─ cache/
-│  │
-│  ├─ US/
-│  │  ├─ universe/
-│  │  ├─ shortlist/
-│  │  ├─ core_watch/
-│  │  ├─ history/
-│  │  └─ cache/
-│  │
-│  ├─ JP/
-│  │  ├─ universe/
-│  │  ├─ shortlist/
-│  │  ├─ core_watch/
-│  │  ├─ history/
-│  │  └─ cache/
-│  │
-│  └─ CRYPTO/
-│     ├─ universe/
-│     ├─ shortlist/
-│     ├─ core_watch/
-│     ├─ history/
-│     └─ cache/
+├─ STOCK_DB/ # 各市場歷史資料庫
+│ ├─ TW/
+│ │ ├─ universe/
+│ │ ├─ shortlist/
+│ │ ├─ core_watch/
+│ │ ├─ history/
+│ │ └─ cache/
+│ │
+│ ├─ US/
+│ ├─ JP/
+│ └─ CRYPTO/
 │
-├─ TEMP_CACHE/
-│  ├─ cache/
-│  ├─ snapshot/
-│  └─ tmp/
+├─ TEMP_CACHE/ # 暫存 / 防吵 / 稽核
+│ ├─ system_audit_state.json # Discord 防重複通知狀態
+│ ├─ cache/
+│ ├─ snapshot/
+│ └─ tmp/
 │
-├─ stock_data.db
-│
-└─ LOG/
-
-
+└─ LOG/ # 系統日誌（不做決策依據）
 ```
 ---
 
